@@ -41,19 +41,15 @@ mod tests {
     #[test]
     fn test_rule_parsing() {
         let yaml_content = r#"
-        - rule: Test Rule
-          desc: A test rule
-          condition: >
-            syscall == open and 
-            (pathname contains /tmp or pathname contains /dev)
-          priority: WARNING
-          output: >
-            File open 
-            (user=%user.name command=%proc.cmdline file=%fd.name)
-        "#;
+rule: Test Rule
+desc: A test rule
+condition: syscall == open and (pathname contains /tmp or pathname contains /dev)
+priority: WARNING
+output: File open (user=%user.name command=%proc.cmdline file=%fd.name)
+"#;
 
-        // This will be tested once parser is fully implemented
-        // let rules = parse_rules(yaml_content).unwrap();
-        // assert_eq!(rules.len(), 1);
+        let rules = parse_rules(yaml_content).unwrap();
+        assert_eq!(rules.rules.len(), 1);
+        assert_eq!(rules.rules[0].rule, "Test Rule");
     }
 }

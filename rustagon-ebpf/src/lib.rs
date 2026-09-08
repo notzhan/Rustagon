@@ -11,17 +11,13 @@
 //! - All events written to ringbuffer via aya::maps::RingBuf
 
 #![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 
 use aya_ebpf::{
-    bindings::{PT_REGS_PARM1, PT_REGS_PARM2, PT_REGS_PARM3, PT_REGS_RC},
-    cty::c_long,
     macros::{kprobe, map, tracepoint},
     maps::RingBuf,
-    programs::{KProbeContext, TracePointContext},
-    EbpfContext,
+    programs::{ProbeContext, TracePointContext},
 };
-use aya_log_ebpf::info;
 use core::mem;
 use rustagon_common::{
     EventHeader, EventType, OpenEvent, SyscallEvent, MAX_STRING_LEN,
@@ -53,7 +49,7 @@ pub fn trace_sys_enter_openat(ctx: TracePointContext) -> u32 {
 }
 
 #[inline(always)]
-unsafe fn try_trace_open(ctx: &TracePointContext) -> Result<(), u64> {
+unsafe fn try_trace_open(_ctx: &TracePointContext) -> Result<(), u64> {
     // Read syscall context from tracepoint
     let pid_tgid = aya_ebpf::helpers::bpf_get_current_pid_tgid();
     let pid = (pid_tgid >> 32) as u32;
@@ -101,7 +97,7 @@ unsafe fn try_trace_openat(ctx: &TracePointContext) -> Result<(), u64> {
 
 /// KProbe on __audit_syscall_entry to capture all syscalls
 #[kprobe]
-pub fn trace_syscall(ctx: KProbeContext) -> u32 {
+pub fn trace_syscall(ctx: ProbeContext) -> u32 {
     match unsafe { try_trace_syscall(&ctx) } {
         Ok(()) => 0,
         Err(_) => 1,
@@ -109,7 +105,7 @@ pub fn trace_syscall(ctx: KProbeContext) -> u32 {
 }
 
 #[inline(always)]
-unsafe fn try_trace_syscall(ctx: &KProbeContext) -> Result<(), u64> {
+unsafe fn try_trace_syscall(ctx: &ProbeContext) -> Result<(), u64> {
     // Get current process context
     let pid_tgid = aya_ebpf::helpers::bpf_get_current_pid_tgid();
     let pid = (pid_tgid >> 32) as u32;
@@ -152,6 +148,7 @@ unsafe fn try_trace_syscall(ctx: &KProbeContext) -> Result<(), u64> {
     Ok(())
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }

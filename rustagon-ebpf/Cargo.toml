@@ -9,8 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-aya-ebpf = "0.1"
-aya-log-ebpf = "0.1"
+aya-ebpf = "0.2"
 rustagon-common = { path = "../rustagon-common" }
 
 [lib]

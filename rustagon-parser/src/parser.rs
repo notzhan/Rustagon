@@ -30,7 +30,7 @@ pub struct FalcoRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleMacro {
     /// Macro name
-    pub macro: String,
+    pub macro_name: String,
     /// Macro condition
     pub condition: String,
 }
@@ -39,22 +39,19 @@ pub struct RuleMacro {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleList {
     /// List name
-    pub list: String,
+    pub list_name: String,
     /// List items
     pub items: Vec<String>,
 }
 
 /// Complete rule definition (rules + macros + lists)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct RuleDefinition {
     /// List of rules
-    #[serde(default)]
     pub rules: Vec<FalcoRule>,
     /// Macro definitions
-    #[serde(default)]
     pub macros: Vec<RuleMacro>,
     /// List definitions
-    #[serde(default)]
     pub lists: Vec<RuleList>,
 }
 
@@ -64,12 +61,35 @@ fn default_enabled() -> bool {
 
 /// Parse rules from YAML content
 pub fn parse_rules(content: &str) -> crate::Result<RuleDefinition> {
-    // First try to parse as a single document
-    let def: RuleDefinition = serde_yaml::from_str(content)?;
-    Ok(def)
+    // Try to parse as a list of documents (rules)
+    // In Falco, each rule is a separate YAML document
+    let mut rules = Vec::new();
+    let macros = Vec::new();
+    let lists = Vec::new();
+
+    // Split by document separator
+    for doc in content.split("---") {
+        let trimmed = doc.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Try to parse as a rule first
+        if let Ok(rule) = serde_yaml::from_str::<FalcoRule>(trimmed) {
+            rules.push(rule);
+        }
+        // Could add more document types here (macros, lists)
+    }
+
+    Ok(RuleDefinition {
+        rules,
+        macros,
+        lists,
+    })
 }
 
 /// Parse rules from a file
+#[allow(dead_code)]
 pub fn parse_rules_from_file(path: &str) -> crate::Result<RuleDefinition> {
     let content = std::fs::read_to_string(path)?;
     parse_rules(&content)
@@ -82,12 +102,12 @@ mod tests {
     #[test]
     fn test_single_rule_parsing() {
         let yaml = r#"
-        rule: Test Rule
-        desc: A test rule
-        condition: syscall == open
-        priority: WARNING
-        output: File operation
-        "#;
+rule: Test Rule
+desc: A test rule
+condition: syscall == open
+priority: WARNING
+output: File operation
+"#;
 
         let rule: FalcoRule = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(rule.rule, "Test Rule");
@@ -97,15 +117,15 @@ mod tests {
     #[test]
     fn test_rule_with_tags() {
         let yaml = r#"
-        rule: Test Rule
-        desc: A test rule
-        condition: syscall == open
-        priority: WARNING
-        output: File operation
-        tags:
-          - filesystem
-          - detection
-        "#;
+rule: Test Rule
+desc: A test rule
+condition: syscall == open
+priority: WARNING
+output: File operation
+tags:
+  - filesystem
+  - detection
+"#;
 
         let rule: FalcoRule = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(rule.tags.len(), 2);
@@ -115,14 +135,36 @@ mod tests {
     #[test]
     fn test_default_enabled() {
         let yaml = r#"
-        rule: Test Rule
-        desc: A test rule
-        condition: syscall == open
-        priority: WARNING
-        output: File operation
-        "#;
+rule: Test Rule
+desc: A test rule
+condition: syscall == open
+priority: WARNING
+output: File operation
+"#;
 
         let rule: FalcoRule = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(rule.enabled, true);
+    }
+
+    #[test]
+    fn test_parse_multiple_rules() {
+        let yaml = r#"
+rule: Rule 1
+desc: First rule
+condition: syscall == open
+priority: WARNING
+output: Output 1
+---
+rule: Rule 2
+desc: Second rule
+condition: syscall == close
+priority: NOTICE
+output: Output 2
+"#;
+
+        let def = parse_rules(yaml).unwrap();
+        assert_eq!(def.rules.len(), 2);
+        assert_eq!(def.rules[0].rule, "Rule 1");
+        assert_eq!(def.rules[1].rule, "Rule 2");
     }
 }
