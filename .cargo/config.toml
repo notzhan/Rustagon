@@ -1,0 +1,8 @@
+[build]
+target-dir = "target"
+
+[alias]
+xtask = "run --manifest-path ./xtask/Cargo.toml --"
+
+[net]
+git-fetch-with-cli = true

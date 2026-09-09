@@ -1,0 +1,24 @@
+# eBPF build artifacts
+target/bpfel64-unknown-none/
+target/x86_64-unknown-linux-gnu/
+
+# Cargo
+Cargo.lock
+target/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build outputs
+*.o
+*.a
+*.so
+*.elf
+
+# Logs
+*.log

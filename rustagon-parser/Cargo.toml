@@ -1,0 +1,16 @@
+[package]
+name = "rustagon-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+rustagon-common = { path = "../rustagon-common" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+nom = "7"
+thiserror = "1.0"

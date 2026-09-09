@@ -1,0 +1,31 @@
+[workspace]
+members = [
+    "rustagon-common",
+    "rustagon-ebpf",
+    "rustagon-parser",
+    "rustagon-core",
+    "xtask",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+authors = ["AI-Generated"]
+license = "Apache-2.0"
+repository = "https://github.com/notzhan/Rustagon"
+homepage = "https://github.com/notzhan/Rustagon"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+
+# xtask build script workspace-level config
+[workspace.metadata.xtask]
+ebpf_target = "bpfel64-unknown-none"

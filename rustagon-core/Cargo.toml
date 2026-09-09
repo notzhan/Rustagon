@@ -1,0 +1,26 @@
+[package]
+name = "rustagon-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "rustagon"
+path = "src/main.rs"
+
+[dependencies]
+rustagon-common = { path = "../rustagon-common" }
+rustagon-parser = { path = "../rustagon-parser" }
+aya = "0.13"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+crossbeam = "0.8"
+anyhow = "1.0"
+thiserror = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+libc = "0.2"
