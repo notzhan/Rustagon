@@ -63,6 +63,7 @@ const ERROR_NO_PREVIOUS_MACRO: &str =
 pub(crate) struct SequenceLoad {
     pub ruleset: CompiledRuleset,
     pub warnings: Vec<String>,
+    pub schema_valid: bool,
 }
 
 pub(crate) struct SequenceError {
@@ -97,6 +98,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
     if !value.is_sequence() {
         return Ok(None);
     }
+    let schema_valid = sequence_schema_valid(&value);
 
     let yaml_items: Vec<YamlItem> =
         serde_yaml::from_value(value).map_err(|error| SequenceError {
@@ -152,6 +154,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
             rule_details,
         },
         warnings,
+        schema_valid,
     }))
 }
 
@@ -160,7 +163,12 @@ fn apply_list(item: YamlItem, lists: &mut HashMap<String, Vec<String>>) -> Resul
     let mode = item.override_spec.and_then(|spec| spec.items);
     let append = item.append || mode.as_deref() == Some("append");
     if append {
-        lists.entry(name).or_default().extend(item.items);
+        let existing = lists.get_mut(&name).ok_or_else(|| {
+            format!(
+                "List uses 'append' or 'override.items: append' but no list by that name already exists (list `{name}`)"
+            )
+        })?;
+        existing.extend(item.items);
     } else if matches!(mode.as_deref(), Some("replace") | None) {
         lists.insert(name, item.items);
     } else {
@@ -212,9 +220,15 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
 
     if item.append || overrides.is_some() {
         let previous = rules.get_mut(&name).ok_or_else(|| {
-            format!(
-                "Rule uses 'append' or 'override.<key>: append' but no rule by that name already exists (rule `{name}`)"
-            )
+            if item.append || overrides.is_some_and(OverrideSpec::has_append) {
+                format!(
+                    "Rule uses 'append' or 'override.<key>: append' but no rule by that name already exists (rule `{name}`)"
+                )
+            } else {
+                format!(
+                    "An 'override.<key>: replace' to a rule was requested but no rule by that name already exists (rule `{name}`)"
+                )
+            }
         })?;
         if item.append {
             append_text(&mut previous.condition, &condition);
@@ -320,12 +334,90 @@ fn normalize_priority(priority: &str) -> String {
     chars.into_iter().collect()
 }
 
+impl OverrideSpec {
+    fn has_append(&self) -> bool {
+        [
+            self.items.as_deref(),
+            self.condition.as_deref(),
+            self.desc.as_deref(),
+            self.output.as_deref(),
+            self.priority.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|mode| mode == "append")
+    }
+}
+
+fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
+    const ITEM_KEYS: &[&str] = &[
+        "list",
+        "rule",
+        "macro",
+        "items",
+        "condition",
+        "desc",
+        "output",
+        "priority",
+        "append",
+        "override",
+        "enabled",
+        "exceptions",
+        "warn_evttypes",
+        "source",
+        "skip-if-unknown-filter",
+        "capture",
+        "capture_duration",
+        "tags",
+    ];
+    const OVERRIDE_KEYS: &[&str] = &[
+        "items",
+        "condition",
+        "desc",
+        "output",
+        "priority",
+        "enabled",
+        "exceptions",
+        "warn_evttypes",
+        "capture",
+        "capture_duration",
+        "tags",
+    ];
+
+    value.as_sequence().is_some_and(|items| {
+        items.iter().all(|item| {
+            let Some(mapping) = item.as_mapping() else {
+                return false;
+            };
+            mapping.iter().all(|(key, nested)| {
+                let Some(key) = key.as_str() else {
+                    return false;
+                };
+                if !ITEM_KEYS.contains(&key) {
+                    return false;
+                }
+                if key != "override" {
+                    return true;
+                }
+                nested.as_mapping().is_some_and(|overrides| {
+                    overrides.keys().all(|override_key| {
+                        override_key
+                            .as_str()
+                            .is_some_and(|key| OVERRIDE_KEYS.contains(&key))
+                    })
+                })
+            })
+        })
+    })
+}
+
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {
     let mut expanded = condition.to_string();
     for (name, items) in lists {
         expanded = expanded.replace(&format!("({name})"), &format!("({})", items.join(", ")));
     }
 
+    let expanded = expanded.replace(',', ", ");
     let mut normalized = String::with_capacity(expanded.len() + 4);
     let chars: Vec<char> = expanded.chars().collect();
     for (index, ch) in chars.iter().copied().enumerate() {

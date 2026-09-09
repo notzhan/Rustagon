@@ -29,3 +29,30 @@ error substrings.
   (counting the two previously ported cases, `list_append` and `condition_append`).
 
 - Updated `parity/METRICS.md`: `falco_unit_engine` Pass 10, Total 152, 6.6%.
+
+## Batch 2
+
+### Ported and passing
+
+- `macro_override_replace_before_macro_definition`
+- `macro_override_append_after_macro_definition`
+- `macro_append_after_macro_definition`
+- `rule_override_append_before_rule_definition`
+- `rule_override_replace_before_rule_definition`
+- `rule_append_before_rule_definition`
+- `rule_override_append_after_rule_definition`
+- `rule_append_after_rule_definition`
+- `list_override_append_wrong_key`
+- `list_override_append_before_list_definition`
+
+### Engine changes
+
+- Reject list appends when no prior list definition exists.
+- Distinguish missing-rule append and replace diagnostics.
+- Preserve successful loads while reporting schema failure for unknown YAML keys.
+- Normalize comma spacing in compiled conditions.
+
+### Verification
+
+- `cargo test -p rustagon-engine`: 28 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 20, Total 152, 13.2%.

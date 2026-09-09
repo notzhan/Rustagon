@@ -21,6 +21,7 @@ impl FalcoEngine {
                     .extend(loaded.ruleset.rule_details);
                 return LoadResult {
                     warnings: loaded.warnings,
+                    schema_validation: if loaded.schema_valid { "ok" } else { "failed" }.into(),
                     ..LoadResult::success()
                 };
             }
