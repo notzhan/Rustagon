@@ -232,3 +232,40 @@ error substrings.
 - `warn_evttypes`, `skip-if-unknown-filter`, `capture`, and `tags` satisfy the
   ported Falco tests' load/schema assertions, but Rustagon does not yet expose
   or consume their stored runtime values.
+
+## Batch 8
+
+### Ported and passing
+
+- `rule_unknown_key`
+- `list_unknown_key`
+- `macro_unknown_key`
+- `list_cross_type_key_priority`
+- `deprecated_field_in_output`
+- `no_deprecated_field_warning_in_output`
+- `deprecated_evt_dir_folded_scalar_condition_snippet`
+- `deprecated_evt_dir_via_macro_folded_scalar_condition_snippet`
+- `rule_capture_enabled`
+- `rule_capture_disabled_by_default`
+
+### Engine changes
+
+- Warn on keys that are unknown for each item type while preserving the flat-union
+  schema behavior for cross-type keys.
+- Warn on deprecated `evt.dir` output and condition usage, including macro-propagated
+  folded-rule condition text without YAML scalar markers.
+- Store capture state and expose Falco-compatible disabled/zero defaults.
+
+### Verification
+
+- TDD red runs failed on the missing capture metadata and macro-propagated folded
+  condition snippet.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 82 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 74 (`64 + 10`),
+  Total 152, 48.7%.
+
+### Concern
+
+- Rustagon exposes warnings as strings rather than Falco's structured warning JSON;
+  folded-scalar parity covers warning content but not JSON code/context fields.

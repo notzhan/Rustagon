@@ -16,6 +16,8 @@ pub struct RuleDetails {
     pub output: Option<String>,
     pub priority: Option<String>,
     pub enabled: bool,
+    pub capture: bool,
+    pub capture_duration: u32,
     source: String,
     exceptions: Vec<ExceptionSpec>,
 }
@@ -40,6 +42,10 @@ struct YamlItem {
     priority: Option<String>,
     #[serde(default)]
     enabled: Option<bool>,
+    #[serde(default)]
+    capture: Option<bool>,
+    #[serde(default)]
+    capture_duration: Option<u32>,
     #[serde(default)]
     source: Option<String>,
     #[serde(default)]
@@ -128,6 +134,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         return Ok(None);
     }
     let schema_valid = sequence_schema_valid(&value);
+    let mut warnings = unknown_key_warnings(&value);
 
     let yaml_items: Vec<YamlItem> =
         serde_yaml::from_value(value).map_err(|error| SequenceError {
@@ -139,10 +146,26 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
     let mut lists: HashMap<String, Vec<String>> = HashMap::new();
     let mut rule_details: HashMap<String, RuleDetails> = HashMap::new();
     let mut macros = HashMap::new();
-    let mut warnings = Vec::new();
     for item in yaml_items {
         if item.append {
             warnings.push(WARNING_APPEND.to_string());
+        }
+        if item
+            .output
+            .as_deref()
+            .is_some_and(|output| output.contains("%evt.dir"))
+        {
+            warnings.push(
+                "usage of deprecated field 'evt.dir' has been detected in the rule output"
+                    .to_string(),
+            );
+        }
+        if item
+            .condition
+            .as_deref()
+            .is_some_and(|condition| condition.contains("evt.dir"))
+        {
+            warnings.push("usage of deprecated field 'evt.dir' has been detected".to_string());
         }
         let result = if item.required_engine_version.is_some() {
             validate_engine_version(
@@ -165,6 +188,17 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
                 warnings,
                 schema_valid: true,
             });
+        }
+    }
+
+    for rule in rule_details.values() {
+        for (name, condition) in &macros {
+            if condition.contains("evt.dir") && condition_references_name(&rule.condition, name) {
+                warnings.push(format!(
+                    "usage of deprecated field 'evt.dir' has been detected; snippet: {}",
+                    rule.condition.trim()
+                ));
+            }
         }
     }
 
@@ -210,6 +244,12 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         warnings,
         schema_valid,
     }))
+}
+
+fn condition_references_name(condition: &str, name: &str) -> bool {
+    condition
+        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+        .any(|token| token == name)
 }
 
 fn apply_list(
@@ -434,6 +474,8 @@ fn apply_rule(
                 output: item.output,
                 priority: item.priority.map(|value| normalize_priority(&value)),
                 enabled: item.enabled.unwrap_or(true),
+                capture: item.capture.unwrap_or(false),
+                capture_duration: item.capture_duration.unwrap_or(0),
                 source: item
                     .source
                     .filter(|source| !source.is_empty())
@@ -691,6 +733,52 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
             })
         })
     })
+}
+
+fn unknown_key_warnings(value: &serde_yaml::Value) -> Vec<String> {
+    const LIST_KEYS: &[&str] = &["list", "items", "append", "override"];
+    const MACRO_KEYS: &[&str] = &["macro", "condition", "append", "override"];
+    const RULE_KEYS: &[&str] = &[
+        "rule",
+        "condition",
+        "desc",
+        "output",
+        "priority",
+        "append",
+        "override",
+        "enabled",
+        "exceptions",
+        "warn_evttypes",
+        "source",
+        "skip-if-unknown-filter",
+        "capture",
+        "capture_duration",
+        "tags",
+    ];
+
+    value
+        .as_sequence()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_yaml::Value::as_mapping)
+        .flat_map(|mapping| {
+            let allowed = if mapping.contains_key(serde_yaml::Value::String("list".into())) {
+                LIST_KEYS
+            } else if mapping.contains_key(serde_yaml::Value::String("macro".into())) {
+                MACRO_KEYS
+            } else if mapping.contains_key(serde_yaml::Value::String("rule".into())) {
+                RULE_KEYS
+            } else {
+                return Vec::new();
+            };
+            mapping
+                .keys()
+                .filter_map(serde_yaml::Value::as_str)
+                .filter(|key| !allowed.contains(key))
+                .map(|key| format!("Unknown key '{key}'"))
+                .collect()
+        })
+        .collect()
 }
 
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {
