@@ -53,6 +53,50 @@ fn malformed_sequence_yaml_is_an_error() {
 }
 
 #[test]
+fn multi_doc_legacy_yaml_loads_via_parser_fallback() {
+    let yaml = r#"
+rule: Rule 1
+desc: First rule
+condition: evt.type=open
+priority: WARNING
+output: Output 1
+---
+rule: Rule 2
+desc: Second rule
+condition: evt.type=close
+priority: NOTICE
+output: Output 2
+"#;
+    let mut eng = FalcoEngine::new();
+    let res = eng.load_rules(yaml, "multi_doc.yaml");
+    assert!(res.ok, "{:?}", res.errors);
+    assert!(eng.compiled_condition("Rule 1").is_some());
+    assert!(eng.compiled_condition("Rule 2").is_some());
+}
+
+#[test]
+fn multi_doc_starting_with_separator_loads_via_parser_fallback() {
+    let yaml = r#"---
+rule: Rule 1
+desc: First rule
+condition: evt.type=open
+priority: WARNING
+output: Output 1
+---
+rule: Rule 2
+desc: Second rule
+condition: evt.type=close
+priority: NOTICE
+output: Output 2
+"#;
+    let mut eng = FalcoEngine::new();
+    let res = eng.load_rules(yaml, "multi_doc_separator.yaml");
+    assert!(res.ok, "{:?}", res.errors);
+    assert!(eng.compiled_condition("Rule 1").is_some());
+    assert!(eng.compiled_condition("Rule 2").is_some());
+}
+
+#[test]
 fn sequence_macros_are_retained_without_expansion() {
     let yaml = r#"
 - macro: spawned_process

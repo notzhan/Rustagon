@@ -82,10 +82,21 @@ impl TryFrom<YamlItem> for FalcoItem {
     }
 }
 
+fn is_falco_sequence_yaml(content: &str) -> bool {
+    let trimmed = content.trim_start();
+    if trimmed.starts_with("---") {
+        return false;
+    }
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("-\n")
+        || trimmed.starts_with("-\r\n")
+        || trimmed.starts_with("-\t")
+}
+
 pub(crate) fn load_sequence(content: &str) -> Result<Option<CompiledRuleset>, String> {
     let value: serde_yaml::Value = match serde_yaml::from_str(content) {
         Ok(value) => value,
-        Err(error) if content.trim_start().starts_with('-') => return Err(error.to_string()),
+        Err(error) if is_falco_sequence_yaml(content) => return Err(error.to_string()),
         Err(_) => return Ok(None),
     };
     if !value.is_sequence() {
