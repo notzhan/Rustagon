@@ -5,6 +5,8 @@ members = [
     "rustagon-parser",
     "rustagon-engine",
     "rustagon-core",
+    "rustagon-scap",
+    "rustagon-sinsp",
     "xtask",
 ]
 resolver = "2"
