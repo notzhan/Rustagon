@@ -1,10 +1,9 @@
-use crate::{rule_loader, LoadResult};
+use crate::{rule_loader, CompiledRuleset, LoadResult};
 use rustagon_parser::parse_rules;
-use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct FalcoEngine {
-    pub rules: HashMap<String, String>, // name -> compiled condition (placeholder)
+    pub ruleset: CompiledRuleset,
 }
 
 impl FalcoEngine {
@@ -14,8 +13,9 @@ impl FalcoEngine {
 
     pub fn load_rules(&mut self, content: &str, _name: &str) -> LoadResult {
         match rule_loader::load_sequence(content) {
-            Ok(Some(rules)) => {
-                self.rules.extend(rules);
+            Ok(Some(ruleset)) => {
+                self.ruleset.rules.extend(ruleset.rules);
+                self.ruleset.macros.extend(ruleset.macros);
                 return LoadResult::success();
             }
             Err(error) => {
@@ -32,7 +32,7 @@ impl FalcoEngine {
         match parse_rules(content) {
             Ok(def) => {
                 for r in def.rules {
-                    self.rules.insert(r.rule, r.condition);
+                    self.ruleset.rules.insert(r.rule, r.condition);
                 }
                 LoadResult::success()
             }
@@ -46,6 +46,6 @@ impl FalcoEngine {
     }
 
     pub fn compiled_condition(&self, rule: &str) -> Option<&str> {
-        self.rules.get(rule).map(String::as_str)
+        self.ruleset.rules.get(rule).map(String::as_str)
     }
 }

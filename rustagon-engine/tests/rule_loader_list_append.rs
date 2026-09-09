@@ -24,3 +24,54 @@ fn list_append() {
         "(evt.type = open and proc.name in (ash, bash, csh, ksh, sh, tcsh, zsh, dash, pwsh))"
     );
 }
+
+#[test]
+fn equality_normalization_preserves_other_operators() {
+    let yaml = r#"
+- rule: operators
+  condition: evt.type=open and proc.pid>=1 and proc.pid<=9 and proc.name!=bash and fd.name=~glob
+"#;
+    let mut eng = FalcoEngine::new();
+    let res = eng.load_rules(yaml, "operators.yaml");
+    assert!(res.ok, "{:?}", res.errors);
+    assert_eq!(
+        eng.compiled_condition("operators"),
+        Some("(evt.type = open and proc.pid>=1 and proc.pid<=9 and proc.name!=bash and fd.name=~glob)")
+    );
+}
+
+#[test]
+fn malformed_sequence_yaml_is_an_error() {
+    let yaml = r#"
+- rule: malformed
+  condition: [unterminated
+"#;
+    let mut eng = FalcoEngine::new();
+    let res = eng.load_rules(yaml, "malformed.yaml");
+    assert!(!res.ok);
+    assert!(!res.errors.is_empty());
+}
+
+#[test]
+fn sequence_macros_are_retained_without_expansion() {
+    let yaml = r#"
+- macro: spawned_process
+  condition: evt.type=execve
+- rule: uses_macro
+  condition: spawned_process
+"#;
+    let mut eng = FalcoEngine::new();
+    let res = eng.load_rules(yaml, "macros.yaml");
+    assert!(res.ok, "{:?}", res.errors);
+    assert_eq!(
+        eng.ruleset
+            .macros
+            .get("spawned_process")
+            .map(String::as_str),
+        Some("evt.type=execve")
+    );
+    assert_eq!(
+        eng.compiled_condition("uses_macro"),
+        Some("(spawned_process)")
+    );
+}

@@ -1,6 +1,13 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+#[derive(Debug, Default)]
+pub struct CompiledRuleset {
+    pub rules: HashMap<String, String>,
+    // Retained for Task 1.2, which will add macro expansion.
+    pub macros: HashMap<String, String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct YamlItem {
     #[serde(default)]
@@ -32,7 +39,10 @@ enum FalcoItem {
         name: String,
         condition: String,
     },
-    Macro,
+    Macro {
+        name: String,
+        condition: String,
+    },
 }
 
 impl TryFrom<YamlItem> for FalcoItem {
@@ -60,16 +70,22 @@ impl TryFrom<YamlItem> for FalcoItem {
                     .ok_or_else(|| "rule is missing condition".to_string())?,
             });
         }
-        if item.macro_name.is_some() {
-            return Ok(Self::Macro);
+        if let Some(name) = item.macro_name {
+            return Ok(Self::Macro {
+                name,
+                condition: item
+                    .condition
+                    .ok_or_else(|| "macro is missing condition".to_string())?,
+            });
         }
         Err("YAML item must define list, rule, or macro".to_string())
     }
 }
 
-pub(crate) fn load_sequence(content: &str) -> Result<Option<HashMap<String, String>>, String> {
+pub(crate) fn load_sequence(content: &str) -> Result<Option<CompiledRuleset>, String> {
     let value: serde_yaml::Value = match serde_yaml::from_str(content) {
         Ok(value) => value,
+        Err(error) if content.trim_start().starts_with('-') => return Err(error.to_string()),
         Err(_) => return Ok(None),
     };
     if !value.is_sequence() {
@@ -85,6 +101,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<HashMap<String, Stri
 
     let mut lists: HashMap<String, Vec<String>> = HashMap::new();
     let mut rules = Vec::new();
+    let mut macros = HashMap::new();
     for item in items {
         match item {
             FalcoItem::List {
@@ -99,16 +116,20 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<HashMap<String, Stri
                 }
             }
             FalcoItem::Rule { name, condition } => rules.push((name, condition)),
-            FalcoItem::Macro => {}
+            FalcoItem::Macro { name, condition } => {
+                // Expansion is intentionally deferred to Task 1.2.
+                macros.insert(name, condition);
+            }
         }
     }
 
-    Ok(Some(
-        rules
+    Ok(Some(CompiledRuleset {
+        rules: rules
             .into_iter()
             .map(|(name, condition)| (name, compile_condition(&condition, &lists)))
             .collect(),
-    ))
+        macros,
+    }))
 }
 
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {
@@ -123,6 +144,11 @@ fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> S
         if ch == '='
             && chars.get(index.wrapping_sub(1)) != Some(&'=')
             && chars.get(index + 1) != Some(&'=')
+            && !matches!(
+                chars.get(index.wrapping_sub(1)),
+                Some('<' | '>' | '!' | '~')
+            )
+            && chars.get(index + 1) != Some(&'~')
         {
             if !normalized.ends_with(' ') {
                 normalized.push(' ');
