@@ -27,4 +27,8 @@ fn basic() {
         Some("ruleset")
     );
     assert_eq!(engine.ruleset_for_source("syscall"), Some("ruleset"));
+    assert_eq!(
+        engine.ruleset_for_source_index(index),
+        Some("ruleset")
+    );
 }

@@ -353,6 +353,10 @@ impl FalcoEngine {
         self.ruleset_factory_for_source(name)
     }
 
+    pub fn ruleset_for_source_index(&self, index: usize) -> Option<&str> {
+        self.ruleset_factory_for_source_index(index)
+    }
+
     pub fn check_plugin_requirements(&self, plugins: &[PluginVersion]) -> Result<(), String> {
         requirements_satisfied(&self.plugin_requirements, plugins)
     }
