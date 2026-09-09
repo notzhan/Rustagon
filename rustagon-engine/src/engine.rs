@@ -1,4 +1,4 @@
-use crate::{rule_loader, CompiledRuleset, LoadResult};
+use crate::{rule_loader, CompiledRuleset, LoadResult, RuleDetails};
 use rustagon_parser::parse_rules;
 
 #[derive(Debug, Default)]
@@ -13,17 +13,23 @@ impl FalcoEngine {
 
     pub fn load_rules(&mut self, content: &str, _name: &str) -> LoadResult {
         match rule_loader::load_sequence(content) {
-            Ok(Some(ruleset)) => {
-                self.ruleset.rules.extend(ruleset.rules);
-                self.ruleset.macros.extend(ruleset.macros);
-                return LoadResult::success();
+            Ok(Some(loaded)) => {
+                self.ruleset.rules.extend(loaded.ruleset.rules);
+                self.ruleset.macros.extend(loaded.ruleset.macros);
+                self.ruleset
+                    .rule_details
+                    .extend(loaded.ruleset.rule_details);
+                return LoadResult {
+                    warnings: loaded.warnings,
+                    ..LoadResult::success()
+                };
             }
             Err(error) => {
                 return LoadResult {
                     ok: false,
-                    errors: vec![error],
-                    warnings: vec![],
-                    schema_validation: "failed".into(),
+                    errors: vec![error.message],
+                    warnings: error.warnings,
+                    schema_validation: if error.schema_valid { "ok" } else { "failed" }.into(),
                 };
             }
             Ok(None) => {}
@@ -47,5 +53,9 @@ impl FalcoEngine {
 
     pub fn compiled_condition(&self, rule: &str) -> Option<&str> {
         self.ruleset.rules.get(rule).map(String::as_str)
+    }
+
+    pub fn rule_details(&self, rule: &str) -> Option<&RuleDetails> {
+        self.ruleset.rule_details.get(rule)
     }
 }
