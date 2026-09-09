@@ -1,3 +1,4 @@
+use crate::macro_resolver;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -26,7 +27,10 @@ struct YamlItem {
 
 #[derive(Debug, Deserialize)]
 struct OverrideSpec {
-    items: String,
+    #[serde(default)]
+    items: Option<String>,
+    #[serde(default)]
+    condition: Option<String>,
 }
 
 enum FalcoItem {
@@ -38,10 +42,12 @@ enum FalcoItem {
     Rule {
         name: String,
         condition: String,
+        append: bool,
     },
     Macro {
         name: String,
         condition: String,
+        append: bool,
     },
 }
 
@@ -50,10 +56,10 @@ impl TryFrom<YamlItem> for FalcoItem {
 
     fn try_from(item: YamlItem) -> Result<Self, Self::Error> {
         if let Some(name) = item.list {
-            let append = match item.override_spec {
-                Some(spec) if spec.items == "append" => true,
-                Some(spec) if spec.items == "replace" => false,
-                Some(spec) => return Err(format!("unsupported list override: {}", spec.items)),
+            let append = match item.override_spec.and_then(|spec| spec.items) {
+                Some(mode) if mode == "append" => true,
+                Some(mode) if mode == "replace" => false,
+                Some(mode) => return Err(format!("unsupported list override: {mode}")),
                 None => false,
             };
             return Ok(Self::List {
@@ -63,22 +69,35 @@ impl TryFrom<YamlItem> for FalcoItem {
             });
         }
         if let Some(name) = item.rule {
+            let append = condition_append(item.override_spec)?;
             return Ok(Self::Rule {
                 name,
                 condition: item
                     .condition
                     .ok_or_else(|| "rule is missing condition".to_string())?,
+                append,
             });
         }
         if let Some(name) = item.macro_name {
+            let append = condition_append(item.override_spec)?;
             return Ok(Self::Macro {
                 name,
                 condition: item
                     .condition
                     .ok_or_else(|| "macro is missing condition".to_string())?,
+                append,
             });
         }
         Err("YAML item must define list, rule, or macro".to_string())
+    }
+}
+
+fn condition_append(override_spec: Option<OverrideSpec>) -> Result<bool, String> {
+    match override_spec.and_then(|spec| spec.condition) {
+        Some(mode) if mode == "append" => Ok(true),
+        Some(mode) if mode == "replace" => Ok(false),
+        Some(mode) => Err(format!("unsupported condition override: {mode}")),
+        None => Ok(false),
     }
 }
 
@@ -111,7 +130,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<CompiledRuleset>, St
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut lists: HashMap<String, Vec<String>> = HashMap::new();
-    let mut rules = Vec::new();
+    let mut rules = HashMap::new();
     let mut macros = HashMap::new();
     for item in items {
         match item {
@@ -126,21 +145,52 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<CompiledRuleset>, St
                     lists.insert(name, items);
                 }
             }
-            FalcoItem::Rule { name, condition } => rules.push((name, condition)),
-            FalcoItem::Macro { name, condition } => {
-                // Expansion is intentionally deferred to Task 1.2.
-                macros.insert(name, condition);
+            FalcoItem::Rule {
+                name,
+                condition,
+                append,
+            } => {
+                append_or_replace(&mut rules, name, condition, append);
+            }
+            FalcoItem::Macro {
+                name,
+                condition,
+                append,
+            } => {
+                append_or_replace(&mut macros, name, condition, append);
             }
         }
     }
 
-    Ok(Some(CompiledRuleset {
-        rules: rules
-            .into_iter()
-            .map(|(name, condition)| (name, compile_condition(&condition, &lists)))
-            .collect(),
-        macros,
-    }))
+    let rules = rules
+        .into_iter()
+        .map(|(name, condition)| {
+            let expanded = macro_resolver::resolve_macros(&condition, &macros)
+                .map_err(|error| error.to_string())?;
+            Ok((name, compile_condition(&expanded, &lists)))
+        })
+        .collect::<Result<HashMap<_, _>, String>>()?;
+
+    Ok(Some(CompiledRuleset { rules, macros }))
+}
+
+fn append_or_replace(
+    conditions: &mut HashMap<String, String>,
+    name: String,
+    condition: String,
+    append: bool,
+) {
+    if append {
+        conditions
+            .entry(name)
+            .and_modify(|existing| {
+                existing.push(' ');
+                existing.push_str(condition.trim_start());
+            })
+            .or_insert(condition);
+    } else {
+        conditions.insert(name, condition);
+    }
 }
 
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {

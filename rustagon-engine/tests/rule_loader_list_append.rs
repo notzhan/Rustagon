@@ -97,7 +97,7 @@ output: Output 2
 }
 
 #[test]
-fn sequence_macros_are_retained_without_expansion() {
+fn sequence_macros_are_retained_and_expanded() {
     let yaml = r#"
 - macro: spawned_process
   condition: evt.type=execve
@@ -116,6 +116,6 @@ fn sequence_macros_are_retained_without_expansion() {
     );
     assert_eq!(
         eng.compiled_condition("uses_macro"),
-        Some("(spawned_process)")
+        Some("((evt.type = execve))")
     );
 }

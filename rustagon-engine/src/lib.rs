@@ -1,5 +1,6 @@
 mod engine;
 mod load_result;
+pub mod macro_resolver;
 mod rule_loader;
 
 pub use engine::FalcoEngine;
