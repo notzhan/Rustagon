@@ -39,6 +39,8 @@ struct YamlItem {
     #[serde(default)]
     enabled: Option<bool>,
     #[serde(default)]
+    exceptions: Option<Vec<ExceptionSpec>>,
+    #[serde(default)]
     append: bool,
     #[serde(default, rename = "override")]
     override_spec: Option<OverrideSpec>,
@@ -58,9 +60,18 @@ struct OverrideSpec {
     priority: Option<String>,
     #[serde(default)]
     enabled: Option<String>,
+    #[serde(default)]
+    exceptions: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExceptionSpec {
+    #[serde(default)]
+    fields: Option<serde_yaml::Value>,
 }
 
 const WARNING_APPEND: &str = "'append' key is deprecated. Add an 'append' entry (e.g. 'condition: append') under 'override' instead.";
+const WARNING_ENABLED: &str = "The standalone 'enabled' key usage is deprecated. The correct approach requires also a 'replace' entry under the 'override' key (i.e. 'enabled: replace').";
 const ERROR_OVERRIDE_APPEND: &str = "Keys 'override' and 'append: true' cannot be used together. Add an 'append' entry (e.g. 'condition: append') under 'override' instead.";
 const ERROR_NO_PREVIOUS_MACRO: &str =
     "Macro uses 'append' or 'override.condition: append' but no macro by that name already exists";
@@ -123,7 +134,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         let result = if item.list.is_some() {
             apply_list(item, &mut lists)
         } else if item.rule.is_some() {
-            apply_rule(item, &mut rule_details)
+            apply_rule(item, &mut rule_details, &mut warnings)
         } else if item.macro_name.is_some() {
             apply_macro(item, &mut macros)
         } else {
@@ -204,9 +215,27 @@ fn apply_macro(item: YamlItem, macros: &mut HashMap<String, String>) -> Result<(
     Ok(())
 }
 
-fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Result<(), String> {
+fn apply_rule(
+    item: YamlItem,
+    rules: &mut HashMap<String, RuleDetails>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
     let name = item.rule.clone().expect("checked by caller");
     let overrides = item.override_spec.as_ref();
+    if overrides.is_none()
+        && item.condition.is_none()
+        && item.output.is_none()
+        && item.desc.is_none()
+        && item.priority.is_none()
+        && item.enabled.is_some()
+    {
+        let previous = rules
+            .get_mut(&name)
+            .ok_or_else(|| format!("No rule by that name exists (rule `{name}`)"))?;
+        previous.enabled = item.enabled.expect("checked above");
+        warnings.push(WARNING_ENABLED.to_string());
+        return Ok(());
+    }
     if item.append && overrides.is_some() {
         return Err(ERROR_OVERRIDE_APPEND.to_string());
     }
@@ -232,6 +261,11 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
                 item.enabled.is_some(),
                 overrides.enabled.as_deref(),
             ),
+            (
+                "exceptions",
+                item.exceptions.is_some(),
+                overrides.exceptions.as_deref(),
+            ),
         ] {
             if present && mode.is_none() {
                 return Err(format!("Unexpected key '{key}'"));
@@ -246,6 +280,14 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
             }
         }
     }
+    let exception_mode = overrides.and_then(|spec| spec.exceptions.as_deref());
+    if let Some(mode) = exception_mode {
+        validate_mode("exceptions", mode)?;
+    }
+    validate_exceptions(
+        item.exceptions.as_deref(),
+        exception_mode == Some("append") || item.append,
+    )?;
     if let Some(mode) = overrides.and_then(|spec| spec.priority.as_deref()) {
         if mode == "append" {
             return Err(
@@ -411,11 +453,26 @@ impl OverrideSpec {
             self.output.as_deref(),
             self.priority.as_deref(),
             self.enabled.as_deref(),
+            self.exceptions.as_deref(),
         ]
         .into_iter()
         .flatten()
         .any(|mode| mode == "append")
     }
+}
+
+fn validate_exceptions(exceptions: Option<&[ExceptionSpec]>, append: bool) -> Result<(), String> {
+    let Some(exceptions) = exceptions else {
+        return Ok(());
+    };
+    if !append
+        && exceptions
+            .iter()
+            .any(|exception| exception.fields.is_none())
+    {
+        return Err("Item has no mapping for key 'fields'".to_string());
+    }
+    Ok(())
 }
 
 fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {

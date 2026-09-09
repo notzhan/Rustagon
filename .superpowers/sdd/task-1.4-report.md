@@ -83,3 +83,33 @@ error substrings.
 
 - `cargo test -p rustagon-engine`: 38 passed, 0 failed.
 - Updated `parity/METRICS.md`: `falco_unit_engine` Pass 30, Total 152, 19.7%.
+
+## Batch 4
+
+### Ported and passing
+
+- `rule_override_exceptions_required_fields`
+- `rule_enabled_warning`
+- `rewrite_rule`
+- `rule_enabled_is_ignored_by_append`
+
+### Engine changes
+
+- Validate that replacement and initial exception definitions include `fields`,
+  while retaining Falco's allowance for partial append definitions.
+- Support the deprecated standalone `enabled` update and emit Falco's warning.
+
+### Blocked
+
+- The six requested evt.type warning cases require semantic condition analysis:
+  determining the set of matching event types, recognizing statically
+  unsatisfiable expressions, contradictions, and unsatisfiable expanded macros.
+  The current engine only normalizes condition strings, so fixture-specific
+  string matching would fake parity rather than implement the subsystem.
+
+### Verification
+
+- TDD red run: 2 passed, 2 failed for the two missing behaviors.
+- `cargo test -p rustagon-engine`: 42 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 44
+  (`20 + 10 + 10 + 4`), Total 152, 28.9%.
