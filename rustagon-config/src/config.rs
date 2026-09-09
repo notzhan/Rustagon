@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
@@ -27,6 +27,8 @@ pub enum ConfigError {
     SecondaryInclude(PathBuf),
     #[error("configuration cannot include itself: `{0}`")]
     SelfInclude(PathBuf),
+    #[error("plugin library path escapes the plugin directory: `{0}`")]
+    PluginPathTraversal(String),
     #[error("CLI override key cannot be empty")]
     EmptyOverrideKey,
 }
@@ -72,7 +74,8 @@ pub struct FalcoConfig {
 
 impl FalcoConfig {
     pub fn load_from_str(content: &str) -> Result<Self, ConfigError> {
-        let value: Value = serde_yaml::from_str(content)?;
+        let mut value: Value = serde_yaml::from_str(content)?;
+        expand_environment(&mut value);
         Self::from_value(value)
     }
 
@@ -83,6 +86,7 @@ impl FalcoConfig {
             source,
         })?;
         let mut root: Value = serde_yaml::from_str(&content)?;
+        expand_environment(&mut root);
         let includes = read_includes(&root)?;
         let mut loaded_files = vec![path.to_path_buf()];
         let main_identity = normalized_path(path);
@@ -100,7 +104,8 @@ impl FalcoConfig {
                         path: child_path.clone(),
                         source,
                     })?;
-                let child: Value = serde_yaml::from_str(&child_content)?;
+                let mut child: Value = serde_yaml::from_str(&child_content)?;
+                expand_environment(&mut child);
                 if mapping_has_key(&child, "config_files") {
                     return Err(ConfigError::SecondaryInclude(child_path));
                 }
@@ -123,7 +128,11 @@ impl FalcoConfig {
         let mut document = serde_yaml::to_value(&*self)?;
         let override_value =
             serde_yaml::from_str::<Value>(value).unwrap_or_else(|_| Value::String(value.into()));
-        set_dotted_key(&mut document, key, override_value);
+        if let Some(key) = key.strip_suffix("[]") {
+            append_dotted_key(&mut document, key, override_value);
+        } else {
+            set_dotted_key(&mut document, key, override_value);
+        }
         let mut updated = Self::from_value(document)?;
         updated.loaded_files = loaded_files;
         *self = updated;
@@ -139,8 +148,84 @@ impl FalcoConfig {
                 config.webserver.listen_address.clone(),
             ));
         }
+        for plugin in &config.plugins {
+            if relative_path_escapes_root(Path::new(&plugin.library_path)) {
+                return Err(ConfigError::PluginPathTraversal(
+                    plugin.library_path.clone(),
+                ));
+            }
+        }
         Ok(config)
     }
+}
+
+fn expand_environment(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            let (expanded, changed, exact) = expand_environment_string(text);
+            if changed && exact && !expanded.is_empty() {
+                *value =
+                    serde_yaml::from_str(&expanded).unwrap_or_else(|_| Value::String(expanded));
+            } else if changed {
+                *text = expanded;
+            }
+        }
+        Value::Sequence(items) => {
+            for item in items {
+                expand_environment(item);
+            }
+        }
+        Value::Mapping(map) => {
+            for item in map.values_mut() {
+                expand_environment(item);
+            }
+        }
+        Value::Tagged(tagged) => expand_environment(&mut tagged.value),
+        _ => {}
+    }
+}
+
+fn expand_environment_string(input: &str) -> (String, bool, bool) {
+    const ESCAPED_OPEN: &str = "\u{0}RUSTAGON_ESCAPED_ENV\u{0}";
+    let exact = input.starts_with("${") && input.ends_with('}') && input.matches("${").count() == 1;
+    let mut result = input.replace("$${", ESCAPED_OPEN);
+    let mut changed = result != input;
+
+    for _ in 0..32 {
+        let Some(start) = result.find("${") else {
+            break;
+        };
+        let Some(relative_end) = result[start + 2..].find('}') else {
+            break;
+        };
+        let end = start + 2 + relative_end;
+        let name = &result[start + 2..end];
+        let replacement = std::env::var(name).unwrap_or_default();
+        result.replace_range(start..=end, &replacement);
+        changed = true;
+    }
+
+    if result.contains(ESCAPED_OPEN) {
+        result = result.replace(ESCAPED_OPEN, "${");
+        changed = true;
+    }
+    (result, changed, exact)
+}
+
+fn relative_path_escapes_root(path: &Path) -> bool {
+    if path.is_absolute() {
+        return false;
+    }
+    let mut depth = 0usize;
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir if depth == 0 => return true,
+            Component::ParentDir => depth -= 1,
+            _ => {}
+        }
+    }
+    false
 }
 
 fn read_includes(root: &Value) -> Result<Vec<ConfigFile>, ConfigError> {
@@ -229,6 +314,39 @@ fn set_dotted_key(document: &mut Value, key: &str, value: Value) {
                 .as_mapping_mut()
                 .expect("mapping created above")
                 .insert(Value::String(part.into()), value);
+            return;
+        }
+        if !current.is_mapping() {
+            *current = Value::Mapping(Mapping::new());
+        }
+        current = current
+            .as_mapping_mut()
+            .expect("mapping created above")
+            .entry(Value::String(part.into()))
+            .or_insert_with(|| Value::Mapping(Mapping::new()));
+    }
+}
+
+fn append_dotted_key(document: &mut Value, key: &str, value: Value) {
+    let mut current = document;
+    let mut parts = key.split('.').peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            if !current.is_mapping() {
+                *current = Value::Mapping(Mapping::new());
+            }
+            let entry = current
+                .as_mapping_mut()
+                .expect("mapping created above")
+                .entry(Value::String(part.into()))
+                .or_insert_with(|| Value::Sequence(Vec::new()));
+            if !entry.is_sequence() {
+                *entry = Value::Sequence(Vec::new());
+            }
+            entry
+                .as_sequence_mut()
+                .expect("sequence created above")
+                .push(value);
             return;
         }
         if !current.is_mapping() {

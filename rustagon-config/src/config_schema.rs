@@ -91,8 +91,36 @@ pub struct WebserverConfig {
 pub struct PluginConfig {
     pub name: String,
     pub library_path: String,
+    #[serde(deserialize_with = "deserialize_plugin_init_config")]
     pub init_config: Value,
+    #[serde(deserialize_with = "deserialize_string_scalar")]
     pub open_params: String,
+}
+
+fn deserialize_plugin_init_config<'de, D>(deserializer: D) -> Result<Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    match value {
+        Value::String(ref text) if !text.is_empty() => {
+            Ok(serde_yaml::from_str(text).unwrap_or(value))
+        }
+        _ => Ok(value),
+    }
+}
+
+fn deserialize_string_scalar<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Value::deserialize(deserializer)? {
+        Value::Null => Ok(String::new()),
+        Value::Bool(value) => Ok(value.to_string()),
+        Value::Number(value) => Ok(value.to_string()),
+        Value::String(value) => Ok(value),
+        _ => Err(serde::de::Error::custom("expected a scalar string value")),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

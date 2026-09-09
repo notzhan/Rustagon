@@ -40,3 +40,17 @@ the repository tip `falco.yaml`.
 This batch does not yet port the full environment-variable expansion behavior,
 escaped dotted-key syntax, schema diagnostics, plugin path traversal checks, or
 CLI sequence append syntax from the remaining Falco configuration tests.
+
+## Batch 2
+
+Ported 15 more cases (30 total): scalar, embedded, repeated, escaped, undefined,
+recursive, typed, and plugin-field environment expansion; JSON-string and null
+plugin init configs; rejected relative plugin path traversal while allowing
+absolute paths; missing/self config includes; and `append_output[]` CLI options.
+
+The targeted test first failed in 11 new behavior cases, then passed all 30
+after implementation. `falco_unit_app` is now 30/81 (37.0%).
+
+Remaining gaps include schema validation diagnostics, escaped dotted-key
+read/write syntax, wrong-strategy fallback diagnostics, config-file CLI loading,
+and the reload/watch behavior that depends on the application runtime.
