@@ -1,4 +1,4 @@
-use crate::LoadResult;
+use crate::{rule_loader, LoadResult};
 use rustagon_parser::parse_rules;
 use std::collections::HashMap;
 
@@ -13,6 +13,22 @@ impl FalcoEngine {
     }
 
     pub fn load_rules(&mut self, content: &str, _name: &str) -> LoadResult {
+        match rule_loader::load_sequence(content) {
+            Ok(Some(rules)) => {
+                self.rules.extend(rules);
+                return LoadResult::success();
+            }
+            Err(error) => {
+                return LoadResult {
+                    ok: false,
+                    errors: vec![error],
+                    warnings: vec![],
+                    schema_validation: "failed".into(),
+                };
+            }
+            Ok(None) => {}
+        }
+
         match parse_rules(content) {
             Ok(def) => {
                 for r in def.rules {
