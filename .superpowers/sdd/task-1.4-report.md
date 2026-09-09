@@ -113,3 +113,49 @@ error substrings.
 - `cargo test -p rustagon-engine`: 42 passed, 0 failed.
 - Updated `parity/METRICS.md`: `falco_unit_engine` Pass 44
   (`20 + 10 + 10 + 4`), Total 152, 28.9%.
+
+## Metrics correction (post batch 4)
+
+- Corrected `parity/METRICS.md`: `falco_unit_engine` Pass 34 (`30 + 4`), Total 152, 22.4%.
+- Prior entry overstated pass count (44 / 28.9%); batch 4 adds 4 cases to batch 3's 30.
+
+## Batch 5
+
+### Ported and passing
+
+- `required_engine_version_semver`
+- `required_engine_version_not_semver`
+- `required_engine_version_invalid`
+- `list_value_with_escaping`
+- `macro_name_invalid`
+- `list_name_invalid`
+- `exceptions_condition`
+- `exceptions_append_no_values`
+- `exceptions_override_no_values`
+- `exceptions_names_not_unique`
+
+### Engine changes
+
+- Validate semantic and legacy numeric required-engine versions against Falco tip's
+  engine version `0.65.0`, with Falco-compatible invalid-version diagnostics.
+- Preserve quoting for whitespace-containing list values during condition compilation,
+  and warn for invalid macro/list names and unused lists.
+- Compile the requested single-field exception condition and support warnings for
+  value-less exception appends and duplicate exception names.
+- Validate exception mapping keys so typoed `value` entries produce failed schema
+  validation while the load remains successful, matching Falco.
+
+### Verification
+
+- TDD red run: 10 failed for the ten missing behaviors; escaped-list compilation
+  received an additional focused red/green cycle.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 52 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 44 (`34 + 10`),
+  Total 152, 28.9%.
+
+### Concern
+
+- Exception condition compilation currently covers the tuple/list shape exercised by
+  `exceptions_condition`; broader Falco exception operators and value shapes remain
+  outside this batch.

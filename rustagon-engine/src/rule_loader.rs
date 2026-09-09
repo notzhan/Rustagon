@@ -16,6 +16,7 @@ pub struct RuleDetails {
     pub output: Option<String>,
     pub priority: Option<String>,
     pub enabled: bool,
+    exceptions: Vec<ExceptionSpec>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +42,8 @@ struct YamlItem {
     #[serde(default)]
     exceptions: Option<Vec<ExceptionSpec>>,
     #[serde(default)]
+    required_engine_version: Option<serde_yaml::Value>,
+    #[serde(default)]
     append: bool,
     #[serde(default, rename = "override")]
     override_spec: Option<OverrideSpec>,
@@ -64,12 +67,19 @@ struct OverrideSpec {
     exceptions: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 struct ExceptionSpec {
     #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
     fields: Option<serde_yaml::Value>,
+    #[serde(default)]
+    comps: Option<serde_yaml::Value>,
+    #[serde(default)]
+    values: Option<Vec<serde_yaml::Value>>,
 }
 
+const ENGINE_VERSION: (u64, u64, u64) = (0, 65, 0);
 const WARNING_APPEND: &str = "'append' key is deprecated. Add an 'append' entry (e.g. 'condition: append') under 'override' instead.";
 const WARNING_ENABLED: &str = "The standalone 'enabled' key usage is deprecated. The correct approach requires also a 'replace' entry under the 'override' key (i.e. 'enabled: replace').";
 const ERROR_OVERRIDE_APPEND: &str = "Keys 'override' and 'append: true' cannot be used together. Add an 'append' entry (e.g. 'condition: append') under 'override' instead.";
@@ -131,12 +141,18 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         if item.append {
             warnings.push(WARNING_APPEND.to_string());
         }
-        let result = if item.list.is_some() {
-            apply_list(item, &mut lists)
+        let result = if item.required_engine_version.is_some() {
+            validate_engine_version(
+                item.required_engine_version
+                    .as_ref()
+                    .expect("checked above"),
+            )
+        } else if item.list.is_some() {
+            apply_list(item, &mut lists, &mut warnings)
         } else if item.rule.is_some() {
             apply_rule(item, &mut rule_details, &mut warnings)
         } else if item.macro_name.is_some() {
-            apply_macro(item, &mut macros)
+            apply_macro(item, &mut macros, &mut warnings)
         } else {
             Err("YAML item must define list, rule, or macro".to_string())
         };
@@ -146,6 +162,21 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
                 warnings,
                 schema_valid: true,
             });
+        }
+    }
+
+    for name in lists.keys() {
+        let reference = format!("({name})");
+        if !rule_details
+            .values()
+            .any(|rule| rule.condition.contains(&reference))
+            && !macros
+                .values()
+                .any(|condition| condition.contains(&reference))
+        {
+            warnings.push(format!(
+                "A list is defined in the rules content but is not used by any other list, macro, or rule (list `{name}`)"
+            ));
         }
     }
 
@@ -160,7 +191,10 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
                         warnings: warnings.clone(),
                         schema_valid: true,
                     })?;
-                Ok((name.clone(), compile_condition(&expanded, &lists)))
+                Ok((
+                    name.clone(),
+                    compile_condition_with_exceptions(&expanded, &lists, &details.exceptions),
+                ))
             })
             .collect::<Result<HashMap<_, _>, SequenceError>>()?;
 
@@ -175,8 +209,17 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
     }))
 }
 
-fn apply_list(item: YamlItem, lists: &mut HashMap<String, Vec<String>>) -> Result<(), String> {
+fn apply_list(
+    item: YamlItem,
+    lists: &mut HashMap<String, Vec<String>>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
     let name = item.list.expect("checked by caller");
+    if !is_valid_list_name(&name) {
+        warnings.push(
+            "List has an invalid name. List names should match a regular expression".to_string(),
+        );
+    }
     let mode = item.override_spec.and_then(|spec| spec.items);
     let append = item.append || mode.as_deref() == Some("append");
     if append {
@@ -194,8 +237,17 @@ fn apply_list(item: YamlItem, lists: &mut HashMap<String, Vec<String>>) -> Resul
     Ok(())
 }
 
-fn apply_macro(item: YamlItem, macros: &mut HashMap<String, String>) -> Result<(), String> {
+fn apply_macro(
+    item: YamlItem,
+    macros: &mut HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
     let name = item.macro_name.expect("checked by caller");
+    if !is_valid_macro_name(&name) {
+        warnings.push(
+            "Macro has an invalid name. Macro names should match a regular expression".to_string(),
+        );
+    }
     let condition = item
         .condition
         .ok_or_else(|| "macro is missing condition".to_string())?;
@@ -239,7 +291,7 @@ fn apply_rule(
     if item.append && overrides.is_some() {
         return Err(ERROR_OVERRIDE_APPEND.to_string());
     }
-    if item.append && item.condition.is_none() {
+    if item.append && item.condition.is_none() && item.exceptions.is_none() {
         return Err("Appended rule must have exceptions or condition property".to_string());
     }
     if let Some(overrides) = overrides {
@@ -287,6 +339,7 @@ fn apply_rule(
     validate_exceptions(
         item.exceptions.as_deref(),
         exception_mode == Some("append") || item.append,
+        warnings,
     )?;
     if let Some(mode) = overrides.and_then(|spec| spec.priority.as_deref()) {
         if mode == "append" {
@@ -311,10 +364,12 @@ fn apply_rule(
             }
         })?;
         if item.append {
-            append_text(
-                &mut previous.condition,
-                item.condition.as_deref().expect("validated above"),
-            );
+            if let Some(condition) = item.condition.as_deref() {
+                append_text(&mut previous.condition, condition);
+            }
+            if let Some(exceptions) = item.exceptions {
+                previous.exceptions.extend(exceptions);
+            }
             return Ok(());
         }
         apply_string_override(
@@ -348,6 +403,14 @@ fn apply_rule(
             overrides.and_then(|spec| spec.enabled.as_deref()),
             "enabled",
         )?;
+        if let Some(mode) = exception_mode {
+            let exceptions = item.exceptions.unwrap_or_default();
+            if mode == "append" {
+                previous.exceptions.extend(exceptions);
+            } else {
+                previous.exceptions = exceptions;
+            }
+        }
     } else {
         let condition = item
             .condition
@@ -360,6 +423,7 @@ fn apply_rule(
                 output: item.output,
                 priority: item.priority.map(|value| normalize_priority(&value)),
                 enabled: item.enabled.unwrap_or(true),
+                exceptions: item.exceptions.unwrap_or_default(),
             },
         );
     }
@@ -461,7 +525,11 @@ impl OverrideSpec {
     }
 }
 
-fn validate_exceptions(exceptions: Option<&[ExceptionSpec]>, append: bool) -> Result<(), String> {
+fn validate_exceptions(
+    exceptions: Option<&[ExceptionSpec]>,
+    append: bool,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
     let Some(exceptions) = exceptions else {
         return Ok(());
     };
@@ -471,6 +539,25 @@ fn validate_exceptions(exceptions: Option<&[ExceptionSpec]>, append: bool) -> Re
             .any(|exception| exception.fields.is_none())
     {
         return Err("Item has no mapping for key 'fields'".to_string());
+    }
+    if append
+        && exceptions
+            .iter()
+            .any(|exception| exception.values.is_none())
+    {
+        warnings.push("Overriding/appending exception with no values".to_string());
+    }
+    for (index, exception) in exceptions.iter().enumerate() {
+        if exception.name.is_some()
+            && exceptions[..index]
+                .iter()
+                .any(|previous| previous.name == exception.name)
+        {
+            warnings.push(format!(
+                "Multiple definitions of exception '{}'",
+                exception.name.as_deref().expect("checked above")
+            ));
+        }
     }
     Ok(())
 }
@@ -489,6 +576,7 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
         "override",
         "enabled",
         "exceptions",
+        "required_engine_version",
         "warn_evttypes",
         "source",
         "skip-if-unknown-filter",
@@ -522,6 +610,19 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
                 if !ITEM_KEYS.contains(&key) {
                     return false;
                 }
+                if key == "exceptions" {
+                    const EXCEPTION_KEYS: &[&str] = &["name", "fields", "comps", "values"];
+                    return nested.as_sequence().is_some_and(|exceptions| {
+                        exceptions.iter().all(|exception| {
+                            exception.as_mapping().is_some_and(|mapping| {
+                                mapping.keys().all(|key| {
+                                    key.as_str()
+                                        .is_some_and(|key| EXCEPTION_KEYS.contains(&key))
+                                })
+                            })
+                        })
+                    });
+                }
                 if key != "override" {
                     return true;
                 }
@@ -540,7 +641,12 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {
     let mut expanded = condition.to_string();
     for (name, items) in lists {
-        expanded = expanded.replace(&format!("({name})"), &format!("({})", items.join(", ")));
+        let items = items
+            .iter()
+            .map(|item| quote_condition_item(item))
+            .collect::<Vec<_>>()
+            .join(", ");
+        expanded = expanded.replace(&format!("({name})"), &format!("({items})"));
     }
 
     let expanded = expanded.replace(',', ", ");
@@ -567,4 +673,110 @@ fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> S
     }
     let normalized = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
     format!("({normalized})")
+}
+
+fn quote_condition_item(item: &str) -> String {
+    if item.chars().any(char::is_whitespace)
+        && !matches!(item.as_bytes().first(), Some(b'"' | b'\''))
+    {
+        format!("\"{item}\"")
+    } else {
+        item.to_string()
+    }
+}
+
+fn validate_engine_version(value: &serde_yaml::Value) -> Result<(), String> {
+    let display = value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_u64().map(|version| version.to_string()))
+        .unwrap_or_else(|| format!("{value:?}"));
+    let parsed = if let Some(minor) = value.as_u64() {
+        Some((0, minor, 0))
+    } else {
+        parse_semver(&display)
+    };
+    let Some(version) = parsed else {
+        return Err(format!(
+            "Unable to parse engine version '{display}' as a semver string. Expected \"x.y.z\" semver format."
+        ));
+    };
+    if version > ENGINE_VERSION {
+        return Err(format!(
+            "Rules require engine version {}, but engine version is 0.65.0",
+            display
+        ));
+    }
+    Ok(())
+}
+
+fn parse_semver(version: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = version.split('.');
+    let parsed = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(parsed)
+}
+
+fn is_valid_macro_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|ch| ch.is_ascii_alphabetic())
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn is_valid_list_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name
+            .chars()
+            .any(|ch| ch.is_whitespace() || "()\"'=,".contains(ch))
+}
+
+fn compile_condition_with_exceptions(
+    condition: &str,
+    lists: &HashMap<String, Vec<String>>,
+    exceptions: &[ExceptionSpec],
+) -> String {
+    let mut compiled = compile_condition(condition, lists);
+    for exception in exceptions {
+        let Some(fields) = exception
+            .fields
+            .as_ref()
+            .and_then(serde_yaml::Value::as_sequence)
+        else {
+            continue;
+        };
+        let Some(comps) = exception
+            .comps
+            .as_ref()
+            .and_then(serde_yaml::Value::as_sequence)
+        else {
+            continue;
+        };
+        let Some(values) = exception.values.as_deref() else {
+            continue;
+        };
+        for row in values {
+            let Some(row) = row.as_sequence() else {
+                continue;
+            };
+            let clauses = fields
+                .iter()
+                .zip(comps)
+                .zip(row)
+                .filter_map(|((field, comp), value)| {
+                    let field = field.as_str()?;
+                    let comp = comp.as_str()?;
+                    let value = value.as_str()?;
+                    let value = quote_condition_item(value);
+                    Some(format!("{field} {comp} {value}"))
+                })
+                .collect::<Vec<_>>();
+            if !clauses.is_empty() {
+                compiled = format!("({compiled} and not {})", clauses.join(" and "));
+            }
+        }
+    }
+    compiled
 }
