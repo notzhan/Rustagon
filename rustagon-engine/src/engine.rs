@@ -96,6 +96,38 @@ impl FalcoEngine {
             return match AltCompileOutput::compile(content, &sources) {
                 Ok(output) => {
                     self.alternate_properties = output.defined_properties;
+                    self.ruleset.lists.extend(output.lists);
+                    self.ruleset.macros.extend(output.macros);
+                    let mut details = output
+                        .rules
+                        .into_iter()
+                        .map(|(name, rule)| {
+                            let condition = rule.condition;
+                            if rule.enabled {
+                                self.ruleset.rules.insert(name.clone(), condition.clone());
+                            }
+                            (
+                                name,
+                                RuleDetails::from_compiled(
+                                    condition,
+                                    rule.output,
+                                    rule.priority,
+                                    rule.source,
+                                    rule.tags,
+                                    rule.enabled,
+                                ),
+                            )
+                        })
+                        .collect::<HashMap<_, _>>();
+                    self.apply_output_formats(&mut details);
+                    for (name, rule) in &details {
+                        let tags = rule.tags.iter().map(String::as_str).collect::<Vec<_>>();
+                        self.selections.add(name, &tags);
+                        if rule.enabled {
+                            self.selections.enable_name(name, 0);
+                        }
+                    }
+                    self.ruleset.rule_details.extend(details);
                     LoadResult::success()
                 }
                 Err(error) => LoadResult {
@@ -118,6 +150,7 @@ impl FalcoEngine {
                     }
                 }
                 self.ruleset.rules.extend(loaded.ruleset.rules);
+                self.ruleset.lists.extend(loaded.ruleset.lists);
                 self.ruleset.macros.extend(loaded.ruleset.macros);
                 self.ruleset
                     .rule_details
@@ -299,8 +332,20 @@ impl FalcoEngine {
             .map(|source| source.formatter_factory.as_str())
     }
 
+    pub fn formatter_factory_for_source_index(&self, index: usize) -> Option<&str> {
+        self.sources
+            .get(index)
+            .map(|source| source.formatter_factory.as_str())
+    }
+
     pub fn ruleset_factory_for_source(&self, name: &str) -> Option<&str> {
         self.source(name)
+            .map(|source| source.ruleset_factory.as_str())
+    }
+
+    pub fn ruleset_factory_for_source_index(&self, index: usize) -> Option<&str> {
+        self.sources
+            .get(index)
             .map(|source| source.ruleset_factory.as_str())
     }
 

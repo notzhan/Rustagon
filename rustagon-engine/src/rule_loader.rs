@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct CompiledRuleset {
+    pub lists: HashMap<String, Vec<String>>,
     pub rules: HashMap<String, String>,
     pub macros: HashMap<String, String>,
     pub rule_details: HashMap<String, RuleDetails>,
@@ -31,6 +32,25 @@ pub struct RuleDetails {
 impl RuleDetails {
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    pub(crate) fn from_compiled(
+        condition: String,
+        output: Option<String>,
+        priority: String,
+        source: String,
+        tags: Vec<String>,
+        enabled: bool,
+    ) -> Self {
+        Self {
+            condition,
+            output,
+            priority: Some(priority),
+            source,
+            tags,
+            enabled,
+            ..Self::default()
+        }
     }
 }
 
@@ -279,6 +299,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
 
     Ok(Some(SequenceLoad {
         ruleset: CompiledRuleset {
+            lists,
             rules,
             macros,
             rule_details,

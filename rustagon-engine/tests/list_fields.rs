@@ -39,6 +39,25 @@ fn syscall_specific_class_has_source_label() {
 }
 
 #[test]
+fn source_filter_excludes_fields_for_unknown_source() {
+    assert!(engine()
+        .list_fields("unknown", false, true)
+        .trim()
+        .is_empty());
+    assert!(engine()
+        .list_fields_json("unknown", false, true)
+        .contains(r#""fields":[]"#));
+}
+
+#[test]
+fn syscall_names_only_lists_registered_fields() {
+    let output = engine().list_fields("syscall", false, true);
+    assert!(output.lines().any(|field| field == "evt.type"));
+    assert!(output.lines().any(|field| field == "evt.num"));
+    assert!(output.lines().any(|field| field == "fd.name"));
+}
+
+#[test]
 fn json_output_labels_only_source_specific_classes() {
     let value: serde_yaml::Value =
         serde_yaml::from_str(&engine().list_fields_json("", false, false)).unwrap();

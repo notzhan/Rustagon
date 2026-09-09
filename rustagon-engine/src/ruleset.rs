@@ -77,7 +77,7 @@ impl Ruleset {
         let matches = self
             .rules
             .iter()
-            .filter(|(_, rule_tags)| tags.iter().all(|tag| rule_tags.contains(*tag)))
+            .filter(|(_, rule_tags)| tags.iter().any(|tag| rule_tags.contains(*tag)))
             .map(|(name, _)| name.clone())
             .collect::<Vec<_>>();
         let names = self.enabled.entry(id).or_default();

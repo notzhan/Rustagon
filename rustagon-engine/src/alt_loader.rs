@@ -1,3 +1,4 @@
+use crate::macro_resolver;
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -25,6 +26,11 @@ impl RuleLoaderHooks {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AltRule {
     pub priority: String,
+    pub condition: String,
+    pub output: Option<String>,
+    pub source: String,
+    pub tags: Vec<String>,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -74,14 +80,34 @@ impl AltCompileOutput {
             } else if let Some(name) = string("rule") {
                 let source = string("source").unwrap_or("syscall");
                 if sources.contains(&source) {
+                    let tags = mapping
+                        .get(Value::String("tags".to_string()))
+                        .and_then(Value::as_sequence)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
                     output.rules.insert(
                         name.to_string(),
                         AltRule {
                             priority: string("priority").unwrap_or("DEBUG").to_string(),
+                            condition: string("condition").unwrap_or_default().to_string(),
+                            output: string("output").map(str::to_string),
+                            source: source.to_string(),
+                            tags,
+                            enabled: mapping
+                                .get(Value::String("enabled".to_string()))
+                                .and_then(Value::as_bool)
+                                .unwrap_or(true),
                         },
                     );
                 }
             }
+        }
+        for rule in output.rules.values_mut() {
+            rule.condition = macro_resolver::resolve_macros(&rule.condition, &output.macros)
+                .map_err(|error| error.to_string())?;
         }
         Ok(output)
     }
@@ -100,18 +126,15 @@ impl AltCompileOutput {
 }
 
 fn priority_rank(priority: &str) -> usize {
-    [
-        "EMERGENCY",
-        "ALERT",
-        "CRITICAL",
-        "ERROR",
-        "WARNING",
-        "NOTICE",
-        "INFORMATIONAL",
-        "INFO",
-        "DEBUG",
-    ]
-    .iter()
-    .position(|candidate| candidate == &priority.to_ascii_uppercase())
-    .unwrap_or(usize::MAX)
+    match priority.to_ascii_uppercase().as_str() {
+        "EMERGENCY" => 0,
+        "ALERT" => 1,
+        "CRITICAL" => 2,
+        "ERROR" => 3,
+        "WARNING" => 4,
+        "NOTICE" => 5,
+        "INFORMATIONAL" | "INFO" => 6,
+        "DEBUG" => 7,
+        _ => usize::MAX,
+    }
 }

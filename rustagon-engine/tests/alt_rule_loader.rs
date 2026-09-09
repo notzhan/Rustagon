@@ -1,4 +1,5 @@
-use rustagon_engine::{AltCompileOutput, FalcoEngine, RuleLoaderHooks};
+use rustagon_engine::{AltCompileOutput, Evt, FalcoEngine, RuleLoaderHooks};
+use std::collections::HashMap;
 
 const CONTENT: &str = r#"
 - test_object: test
@@ -20,7 +21,7 @@ const CONTENT: &str = r#"
   priority: INFO
   source: k8s_audit
 - rule: test debug rule
-  condition: spawned_process
+  condition: evt.type=open
   output: debug
   priority: DEBUG
   source: syscall
@@ -42,6 +43,15 @@ fn pass_compile_output_to_ruleset() {
 }
 
 #[test]
+fn informational_priority_includes_info_alias() {
+    let output = AltCompileOutput::compile(CONTENT, &["syscall"]).unwrap();
+    assert_eq!(
+        output.rules_at_or_above_priority("INFORMATIONAL"),
+        vec!["test info rule"]
+    );
+}
+
+#[test]
 fn falco_engine_alternate_loader() {
     let mut engine = FalcoEngine::new();
     engine.add_source("syscall", "filter", "formatter", "ruleset");
@@ -53,6 +63,26 @@ fn falco_engine_alternate_loader() {
     assert!(properties.contains("my-value"));
     assert!(properties.contains("other-value"));
     assert!(!properties.contains("not-exists-value"));
+    assert_eq!(
+        engine.compiled_condition("test info rule"),
+        Some("(evt.type=execve)")
+    );
+    assert_eq!(
+        engine
+            .ruleset
+            .macros
+            .get("spawned_process")
+            .map(String::as_str),
+        Some("evt.type=execve")
+    );
+    assert!(engine.rule_details("test info rule").is_some());
+    let alert = engine
+        .process_event(
+            &Evt::new(HashMap::from([("evt.type".into(), "execve".into())])),
+            0,
+        )
+        .unwrap();
+    assert_eq!(alert.rule, "test info rule");
 }
 
 #[test]

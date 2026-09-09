@@ -30,3 +30,12 @@ Status: DONE_WITH_CONCERNS
 
 - Full `cargo test --workspace` remains blocked outside this task by the existing `rustagon-ebpf` incompatibilities with aya 0.2.1: obsolete `RingBuf` construction/reserve/submit usage and `ProbeContext::arg` `Option` handling.
 - Event processing is intentionally a Phase-1 field-map stub and currently evaluates direct equality conditions only; no `.so` plugin execution was introduced.
+
+## Review follow-up
+
+- Changed tag selection to Falco's OR semantics and added the `[a]` versus `["a", "b"]` regression.
+- Replaced fixture-only field output with a source-filtered field registry; unknown sources now return no fields while syscall names-only and verbose output retain Falco-compatible labels.
+- Unified `INFO` and `INFORMATIONAL` priority ranks.
+- Alternate-loader output now populates engine lists, macros, compiled rules, rule details, and default selections; an event-processing regression verifies the loaded rule is usable.
+- Added formatter and ruleset factory lookup by source index.
+- `cargo test -p rustagon-engine` passes, and parity metrics remain **152 / 152 / 100%**. The optional automatic parity-report counting remains out of scope.

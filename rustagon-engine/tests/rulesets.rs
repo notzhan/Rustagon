@@ -34,3 +34,13 @@ fn enable_disable_rules_using_tags() {
     ruleset.disable_tags(&["common"], 2);
     assert_eq!(ruleset.enabled_count(2), 0);
 }
+
+#[test]
+fn enabling_multiple_tags_matches_any_tag() {
+    let mut ruleset = Ruleset::default();
+    ruleset.add("rule_A", &["a"]);
+
+    ruleset.enable_tags(&["a", "b"], 0);
+
+    assert!(ruleset.is_enabled("rule_A", 0));
+}

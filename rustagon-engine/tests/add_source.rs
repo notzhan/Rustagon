@@ -15,7 +15,15 @@ fn basic() {
         Some("formatter")
     );
     assert_eq!(
+        engine.formatter_factory_for_source_index(index),
+        Some("formatter")
+    );
+    assert_eq!(
         engine.ruleset_factory_for_source("syscall"),
+        Some("ruleset")
+    );
+    assert_eq!(
+        engine.ruleset_factory_for_source_index(index),
         Some("ruleset")
     );
     assert_eq!(engine.ruleset_for_source("syscall"), Some("ruleset"));
