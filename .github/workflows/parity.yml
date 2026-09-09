@@ -1,0 +1,28 @@
+name: Parity
+
+on:
+  push:
+    branches: [main, feat/falco-parity]
+  pull_request:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Forbidden dependency audit
+        run: ./parity/scripts/audit-deps.sh
+
+      - name: Parity report
+        run: cargo xtask parity-report
+
+      # Full `cargo test --workspace` is deferred until rustagon-ebpf and
+      # rustagon-core compile failures are fixed (Phase 0 follow-up).
+      - name: Test workspace (excluding eBPF and core)
+        run: cargo test --workspace --exclude rustagon-ebpf --exclude rustagon-core
