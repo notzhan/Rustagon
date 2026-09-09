@@ -1,5 +1,6 @@
 use crate::filter_warnings::{matches_too_many_event_types, TOO_MANY_EVENT_TYPES};
 use crate::macro_resolver;
+use crate::plugins::PluginRequirement;
 use rustagon_parser::filter::parse_filter;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -21,8 +22,16 @@ pub struct RuleDetails {
     pub capture: bool,
     pub capture_duration: u32,
     pub warn_evttypes: bool,
+    pub tags: Vec<String>,
+    pub formatted_fields: HashMap<String, String>,
     source: String,
     exceptions: Vec<ExceptionSpec>,
+}
+
+impl RuleDetails {
+    pub fn source(&self) -> &str {
+        &self.source
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +66,10 @@ struct YamlItem {
     exceptions: Option<Vec<ExceptionSpec>>,
     #[serde(default)]
     required_engine_version: Option<serde_yaml::Value>,
+    #[serde(default)]
+    required_plugin_versions: Option<Vec<PluginRequirement>>,
+    #[serde(default)]
+    tags: Vec<String>,
     #[serde(default)]
     append: bool,
     #[serde(default, rename = "override")]
@@ -110,6 +123,7 @@ pub(crate) struct SequenceLoad {
     pub ruleset: CompiledRuleset,
     pub warnings: Vec<String>,
     pub schema_valid: bool,
+    pub plugin_requirements: Vec<Vec<PluginRequirement>>,
 }
 
 pub(crate) struct SequenceError {
@@ -157,6 +171,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
     let mut lists: HashMap<String, Vec<String>> = HashMap::new();
     let mut rule_details: HashMap<String, RuleDetails> = HashMap::new();
     let mut macros = HashMap::new();
+    let mut plugin_requirements = Vec::new();
     for item in yaml_items {
         if item.append {
             warnings.push(WARNING_APPEND.to_string());
@@ -178,7 +193,10 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         {
             warnings.push("usage of deprecated field 'evt.dir' has been detected".to_string());
         }
-        let result = if item.required_engine_version.is_some() {
+        let result = if let Some(requirements) = item.required_plugin_versions.as_ref() {
+            plugin_requirements.push(requirements.clone());
+            Ok(())
+        } else if item.required_engine_version.is_some() {
             validate_engine_version(
                 item.required_engine_version
                     .as_ref()
@@ -267,6 +285,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
         },
         warnings,
         schema_valid,
+        plugin_requirements,
     }))
 }
 
@@ -534,6 +553,8 @@ fn apply_rule(
                 capture: item.capture.unwrap_or(false),
                 capture_duration: item.capture_duration.unwrap_or(0),
                 warn_evttypes: item.warn_evttypes.unwrap_or(true),
+                tags: item.tags,
+                formatted_fields: HashMap::new(),
                 source: item
                     .source
                     .filter(|source| !source.is_empty())
@@ -797,6 +818,7 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
         "enabled",
         "exceptions",
         "required_engine_version",
+        "required_plugin_versions",
         "warn_evttypes",
         "source",
         "skip-if-unknown-filter",
