@@ -30,3 +30,47 @@ fn condition_append() {
         )
     );
 }
+
+#[test]
+fn comparison_rhs_named_like_macro_is_not_expanded() {
+    let yaml = r#"
+- macro: ssh
+  condition: proc.name=unexpected
+- rule: rhs_value
+  condition: evt.type=open and proc.name=ssh
+"#;
+    let mut engine = FalcoEngine::new();
+    let result = engine.load_rules(yaml, "rhs_value.yaml");
+
+    assert!(result.ok, "{:?}", result.errors);
+    assert_eq!(
+        engine.compiled_condition("rhs_value"),
+        Some("(evt.type = open and proc.name = ssh)")
+    );
+}
+
+#[test]
+fn condition_append_requires_existing_macro_or_rule() {
+    for (kind, name) in [("macro", "missing_macro"), ("rule", "missing_rule")] {
+        let yaml = format!(
+            r#"
+- {kind}: {name}
+  condition: or evt.type=close
+  override:
+    condition: append
+"#
+        );
+        let mut engine = FalcoEngine::new();
+        let result = engine.load_rules(&yaml, "missing_append_target.yaml");
+
+        assert!(!result.ok, "{kind} append unexpectedly succeeded");
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|error| error.contains(kind) && error.contains(name)),
+            "unclear error for {kind} append: {:?}",
+            result.errors
+        );
+    }
+}

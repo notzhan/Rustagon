@@ -42,10 +42,11 @@ fn resolve_condition(
         let identifier = &condition[start..end];
         let touches_field_separator =
             condition[..start].ends_with('.') || condition[end..].starts_with('.');
-        let Some(macro_condition) = (!touches_field_separator)
-            .then(|| macros.get(identifier))
-            .flatten()
-        else {
+        let Some(macro_condition) = (!touches_field_separator
+            && is_bare_boolean_term(condition, start, end)
+            && !is_comparison_rhs(&condition[..start]))
+        .then(|| macros.get(identifier))
+        .flatten() else {
             resolved.push_str(identifier);
             continue;
         };
@@ -69,6 +70,68 @@ fn is_identifier_start(ch: char) -> bool {
 
 fn is_identifier_continue(ch: char) -> bool {
     ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+fn is_bare_boolean_term(condition: &str, start: usize, end: usize) -> bool {
+    let before = condition[..start].trim_end();
+    let after = condition[end..].trim_start();
+
+    let valid_before = before.is_empty()
+        || before.ends_with('(')
+        || trailing_word(before).is_some_and(|word| matches!(word, "and" | "or" | "not"));
+    let valid_after = after.is_empty()
+        || after.starts_with(')')
+        || leading_word(after).is_some_and(|word| matches!(word, "and" | "or"));
+
+    valid_before && valid_after
+}
+
+fn is_comparison_rhs(prefix: &str) -> bool {
+    let mut comparison_seen = false;
+    let mut chars = prefix.char_indices().peekable();
+
+    while let Some((_, ch)) = chars.next() {
+        if is_identifier_start(ch) {
+            let mut word = String::from(ch);
+            while let Some(&(_, next)) = chars.peek() {
+                if !is_identifier_continue(next) {
+                    break;
+                }
+                chars.next();
+                word.push(next);
+            }
+            match word.as_str() {
+                "and" | "or" => comparison_seen = false,
+                "contains" | "icontains" | "bcontains" | "startswith" | "bstartswith"
+                | "endswith" | "in" | "intersects" | "pmatch" | "glob" | "regex" => {
+                    comparison_seen = true;
+                }
+                _ => {}
+            }
+        } else if matches!(ch, '=' | '!' | '<' | '>') {
+            comparison_seen = true;
+        }
+    }
+
+    comparison_seen
+}
+
+fn trailing_word(value: &str) -> Option<&str> {
+    let end = value.len();
+    let start = value
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| (!is_identifier_continue(ch)).then_some(index + ch.len_utf8()))
+        .unwrap_or(0);
+    (start < end).then_some(&value[start..end])
+}
+
+fn leading_word(value: &str) -> Option<&str> {
+    let end = value
+        .char_indices()
+        .find_map(|(index, ch)| (!is_identifier_continue(ch)).then_some(index))
+        .unwrap_or(value.len());
+    (end > 0).then_some(&value[..end])
 }
 
 #[cfg(test)]

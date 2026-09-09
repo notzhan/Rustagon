@@ -150,14 +150,14 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<CompiledRuleset>, St
                 condition,
                 append,
             } => {
-                append_or_replace(&mut rules, name, condition, append);
+                append_or_replace(&mut rules, name, condition, append, "rule")?;
             }
             FalcoItem::Macro {
                 name,
                 condition,
                 append,
             } => {
-                append_or_replace(&mut macros, name, condition, append);
+                append_or_replace(&mut macros, name, condition, append, "macro")?;
             }
         }
     }
@@ -179,18 +179,18 @@ fn append_or_replace(
     name: String,
     condition: String,
     append: bool,
-) {
+    kind: &str,
+) -> Result<(), String> {
     if append {
-        conditions
-            .entry(name)
-            .and_modify(|existing| {
-                existing.push(' ');
-                existing.push_str(condition.trim_start());
-            })
-            .or_insert(condition);
+        let existing = conditions
+            .get_mut(&name)
+            .ok_or_else(|| format!("no {kind} by the name `{name}` exists for append"))?;
+        existing.push(' ');
+        existing.push_str(condition.trim_start());
     } else {
         conditions.insert(name, condition);
     }
+    Ok(())
 }
 
 fn compile_condition(condition: &str, lists: &HashMap<String, Vec<String>>) -> String {

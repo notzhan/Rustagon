@@ -68,3 +68,44 @@ legacy multi-document fallback regressions remain green.
 - No eBPF or core files were changed.
 
 Commit subject: `feat(engine): macro expansion and condition append`
+
+## Important Task 1.2 review fixes
+
+Macro expansion now classifies bare boolean terms and does not substitute
+identifiers used as comparison values, including values following symbolic and
+word comparison operators. The existing `interactive` condition-append fixture
+continues to expand its macro.
+
+Appending a condition to a macro or rule that has not already been defined in
+the same load now returns `LoadResult { ok: false, .. }` with an error naming
+the missing kind and target.
+
+### Regression RED
+
+Before the fixes:
+
+```text
+cargo test -p rustagon-engine --test rule_loader_condition_append
+test condition_append_requires_existing_macro_or_rule ... FAILED
+test comparison_rhs_named_like_macro_is_not_expanded ... FAILED
+test condition_append ... ok
+test result: FAILED. 1 passed; 2 failed
+```
+
+The RHS regression received
+`(evt.type = open and proc.name = (proc.name = unexpected))`; the missing macro
+append unexpectedly succeeded.
+
+### Final verification
+
+```text
+cargo test -p rustagon-engine
+unit tests: 1 passed; integration tests: 9 passed; doc-tests: 0 failed
+
+cargo fmt -p rustagon-engine -- --check
+cargo clippy -p rustagon-engine --all-targets -- -D warnings
+all commands exited 0
+```
+
+Commit subject:
+`fix(engine): tighten macro expansion and append existence checks`
