@@ -42,7 +42,7 @@ struct YamlItem {
     priority: Option<String>,
     #[serde(default)]
     enabled: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_bool_lossy")]
     capture: Option<bool>,
     #[serde(default)]
     capture_duration: Option<u32>,
@@ -74,6 +74,10 @@ struct OverrideSpec {
     enabled: Option<String>,
     #[serde(default)]
     exceptions: Option<String>,
+    #[serde(default)]
+    capture: Option<String>,
+    #[serde(default)]
+    capture_duration: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -369,6 +373,16 @@ fn apply_rule(
                 item.exceptions.is_some(),
                 overrides.exceptions.as_deref(),
             ),
+            (
+                "capture",
+                item.capture.is_some(),
+                overrides.capture.as_deref(),
+            ),
+            (
+                "capture_duration",
+                item.capture_duration.is_some(),
+                overrides.capture_duration.as_deref(),
+            ),
         ] {
             if present && mode.is_none() {
                 return Err(format!("Unexpected key '{key}'"));
@@ -453,6 +467,18 @@ fn apply_rule(
             item.enabled,
             overrides.and_then(|spec| spec.enabled.as_deref()),
             "enabled",
+        )?;
+        apply_bool_override(
+            &mut previous.capture,
+            item.capture,
+            overrides.and_then(|spec| spec.capture.as_deref()),
+            "capture",
+        )?;
+        apply_u32_override(
+            &mut previous.capture_duration,
+            item.capture_duration,
+            overrides.and_then(|spec| spec.capture_duration.as_deref()),
+            "capture_duration",
         )?;
         if let Some(mode) = exception_mode {
             let exceptions = item.exceptions.unwrap_or_default();
@@ -552,6 +578,23 @@ fn apply_bool_override(
     Ok(())
 }
 
+fn apply_u32_override(
+    target: &mut u32,
+    value: Option<u32>,
+    mode: Option<&str>,
+    key: &str,
+) -> Result<(), String> {
+    let Some(mode) = mode else { return Ok(()) };
+    validate_mode(key, mode)?;
+    if mode == "append" {
+        return Err(format!(
+            "Key '{key}' cannot be appended to, use 'replace' instead"
+        ));
+    }
+    *target = value.expect("override value validated by caller");
+    Ok(())
+}
+
 fn append_text(target: &mut String, value: &str) {
     target.push(' ');
     target.push_str(value.trim_start());
@@ -575,6 +618,8 @@ impl OverrideSpec {
             self.priority.as_deref(),
             self.enabled.as_deref(),
             self.exceptions.as_deref(),
+            self.capture.as_deref(),
+            self.capture_duration.as_deref(),
         ]
         .into_iter()
         .flatten()
@@ -719,6 +764,9 @@ fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
                             })
                         })
                     });
+                }
+                if key == "capture" {
+                    return nested.as_bool().is_some();
                 }
                 if key != "override" {
                     return true;
@@ -911,8 +959,7 @@ fn compile_condition_with_exceptions(
                 .filter_map(|((field, comp), value)| {
                     let field = field.as_str()?;
                     let comp = comp.as_str()?;
-                    let value = value.as_str()?;
-                    let value = quote_condition_item(value);
+                    let value = render_exception_value(value)?;
                     Some(format!(
                         "{} {comp} {value}",
                         normalize_exception_field(field)
@@ -936,9 +983,30 @@ fn compile_condition_with_exceptions(
     compiled
 }
 
+fn render_exception_value(value: &serde_yaml::Value) -> Option<String> {
+    if let Some(value) = value.as_str() {
+        return Some(quote_condition_item(value));
+    }
+    value.as_sequence().map(|values| {
+        let values = values
+            .iter()
+            .filter_map(render_exception_value)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("({values})")
+    })
+}
+
 fn normalize_exception_field(field: &str) -> String {
     field
         .split_once('(')
         .map(|(transformer, argument)| format!("{transformer}({}", argument.trim_start()))
         .unwrap_or_else(|| field.to_string())
+}
+
+fn deserialize_optional_bool_lossy<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<serde_yaml::Value>::deserialize(deserializer)?.and_then(|value| value.as_bool()))
 }

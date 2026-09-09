@@ -269,3 +269,37 @@ error substrings.
 
 - Rustagon exposes warnings as strings rather than Falco's structured warning JSON;
   folded-scalar parity covers warning content but not JSON code/context fields.
+
+## Batch 9
+
+### Ported and passing
+
+- `rule_capture_duration`
+- `rule_override_capture_replace`
+- `rule_override_capture_duration_replace`
+- `rule_capture_duration_wrong_type`
+- `rule_capture_wrong_type`
+- `exceptions_modifier_op_startswith_oneof`
+- `exceptions_modifier_op_contains_allof`
+- `exceptions_modifier_op_endswith_anyof`
+- `exceptions_modifier_op_glob_oneof`
+- `exceptions_modifier_op_icontains_oneof`
+
+### Engine changes
+
+- Apply `capture` and `capture_duration` replacement overrides and preserve
+  Falco's schema-only failure for a non-boolean `capture` value.
+- Render nested exception values as RHS lists for compound modifier operators.
+
+### Verification
+
+- TDD red run: 4 passed and 6 failed for the six missing behaviors.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 92 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 84 (`74 + 10`),
+  Total 152, 55.3%.
+
+### Concern
+
+- This batch covers single-field compound exception modifiers; multi-field
+  grouping and invalid compound-operator rejection remain in subsequent tests.
