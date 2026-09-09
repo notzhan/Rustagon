@@ -22,3 +22,7 @@ target/
 
 # Logs
 *.log
+
+# Worktrees / agent scratch
+.worktrees/
+.superpowers/
