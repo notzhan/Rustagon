@@ -558,8 +558,48 @@ fn validate_exceptions(
                 exception.name.as_deref().expect("checked above")
             ));
         }
+        if let Some(values) = exception.values.as_deref() {
+            for value in values
+                .iter()
+                .filter_map(serde_yaml::Value::as_sequence)
+                .flatten()
+                .filter_map(serde_yaml::Value::as_str)
+            {
+                let trimmed = value.trim_end();
+                if looks_like_field_name(trimmed) {
+                    warnings.push(format!(
+                        "'{value}' may be a valid field misused as a const string value"
+                    ));
+                } else if looks_like_malformed_transformer(value) {
+                    warnings.push(format!(
+                        "'{value}' may be a valid field transformer misused as a const string value"
+                    ));
+                }
+            }
+        }
     }
     Ok(())
+}
+
+fn looks_like_field_name(value: &str) -> bool {
+    let mut parts = value.split('.');
+    parts.clone().count() >= 2
+        && parts.all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+}
+
+fn looks_like_malformed_transformer(value: &str) -> bool {
+    let Some((name, argument)) = value.split_once('(') else {
+        return false;
+    };
+    !name.is_empty()
+        && name.chars().all(|ch| ch.is_ascii_alphabetic())
+        && argument.starts_with(char::is_whitespace)
+        && argument.ends_with(')')
 }
 
 fn sequence_schema_valid(value: &serde_yaml::Value) -> bool {
@@ -770,13 +810,32 @@ fn compile_condition_with_exceptions(
                     let comp = comp.as_str()?;
                     let value = value.as_str()?;
                     let value = quote_condition_item(value);
-                    Some(format!("{field} {comp} {value}"))
+                    Some(format!(
+                        "{} {comp} {value}",
+                        normalize_exception_field(field)
+                    ))
                 })
                 .collect::<Vec<_>>();
             if !clauses.is_empty() {
-                compiled = format!("({compiled} and not {})", clauses.join(" and "));
+                let inner = compiled
+                    .strip_prefix('(')
+                    .and_then(|value| value.strip_suffix(')'))
+                    .unwrap_or(&compiled);
+                let base = if inner.contains(" or ") {
+                    format!("({inner})")
+                } else {
+                    inner.to_string()
+                };
+                compiled = format!("({base} and not {})", clauses.join(" and "));
             }
         }
     }
     compiled
+}
+
+fn normalize_exception_field(field: &str) -> String {
+    field
+        .split_once('(')
+        .map(|(transformer, argument)| format!("{transformer}({}", argument.trim_start()))
+        .unwrap_or_else(|| field.to_string())
 }

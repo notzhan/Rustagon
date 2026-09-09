@@ -159,3 +159,39 @@ error substrings.
 - Exception condition compilation currently covers the tuple/list shape exercised by
   `exceptions_condition`; broader Falco exception operators and value shapes remain
   outside this batch.
+
+## Batch 6
+
+### Ported and passing
+
+- `exceptions_values_rhs_field_ambiguous`
+- `exceptions_values_rhs_field_ambiguous_quoted`
+- `exceptions_values_rhs_field_ambiguous_space_quoted`
+- `exceptions_values_rhs_transformer`
+- `exceptions_values_transformer_value_quoted`
+- `exceptions_values_transformer_space`
+- `exceptions_values_transformer_space_quoted`
+- `exceptions_fields_transformer`
+- `exceptions_fields_transformer_quoted`
+- `exceptions_fields_transformer_space_quoted`
+
+### Engine changes
+
+- Match Falco's exception-condition parenthesization for simple conditions while
+  retaining grouping for disjunctions.
+- Warn when exception RHS constants resemble field names or malformed field
+  transformers, including quoted YAML scalars.
+- Normalize whitespace after the opening parenthesis in exception field transformers.
+
+### Verification
+
+- TDD red run: all 10 new tests failed on Falco-incompatible condition rendering.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 62 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 54 (`44 + 10`),
+  Total 152, 35.5%.
+
+### Concern
+
+- Ambiguity warnings use syntax-shape recognition rather than plugin field metadata;
+  this covers the ported cases but may differ for plugin-defined fields.
