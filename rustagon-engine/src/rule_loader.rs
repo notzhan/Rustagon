@@ -16,6 +16,7 @@ pub struct RuleDetails {
     pub output: Option<String>,
     pub priority: Option<String>,
     pub enabled: bool,
+    source: String,
     exceptions: Vec<ExceptionSpec>,
 }
 
@@ -39,6 +40,8 @@ struct YamlItem {
     priority: Option<String>,
     #[serde(default)]
     enabled: Option<bool>,
+    #[serde(default)]
+    source: Option<String>,
     #[serde(default)]
     exceptions: Option<Vec<ExceptionSpec>>,
     #[serde(default)]
@@ -273,6 +276,14 @@ fn apply_rule(
     warnings: &mut Vec<String>,
 ) -> Result<(), String> {
     let name = item.rule.clone().expect("checked by caller");
+    if let (Some(previous), Some(source)) = (
+        rules.get(&name),
+        item.source.as_deref().filter(|source| !source.is_empty()),
+    ) {
+        if source != previous.source {
+            return Err("Rule has been re-defined with a different source".to_string());
+        }
+    }
     let overrides = item.override_spec.as_ref();
     if overrides.is_none()
         && item.condition.is_none()
@@ -423,6 +434,10 @@ fn apply_rule(
                 output: item.output,
                 priority: item.priority.map(|value| normalize_priority(&value)),
                 enabled: item.enabled.unwrap_or(true),
+                source: item
+                    .source
+                    .filter(|source| !source.is_empty())
+                    .unwrap_or_else(|| "syscall".to_string()),
                 exceptions: item.exceptions.unwrap_or_default(),
             },
         );

@@ -195,3 +195,40 @@ error substrings.
 
 - Ambiguity warnings use syntax-shape recognition rather than plugin field metadata;
   this covers the ported cases but may differ for plugin-defined fields.
+
+## Batch 7
+
+### Ported and passing
+
+- `redefine_rule_different_source`
+- `append_across_sources`
+- `selective_replace_across_sources`
+- `empty_source_addl_rule`
+- `empty_string_source_addl_rule`
+- `rule_with_warn_evttypes`
+- `rule_with_skip_if_unknown_filter`
+- `override_replace_warn_evttypes`
+- `override_replace_capture`
+- `override_replace_tags`
+
+### Engine changes
+
+- Track each rule's source, defaulting omitted sources to `syscall`.
+- Reject full redefinitions, appends, and selective replacements that explicitly
+  change a rule's source.
+- Treat null and empty additional-rule sources as inherited, matching Falco.
+
+### Verification
+
+- TDD red run: 7 passed and the 3 cross-source rejection cases failed for the
+  expected missing source validation.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 72 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 64 (`54 + 10`),
+  Total 152, 42.1%.
+
+### Concern
+
+- `warn_evttypes`, `skip-if-unknown-filter`, `capture`, and `tags` satisfy the
+  ported Falco tests' load/schema assertions, but Rustagon does not yet expose
+  or consume their stored runtime values.
