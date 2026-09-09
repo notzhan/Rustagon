@@ -27,3 +27,5 @@ error substrings.
 - `cargo test -p rustagon-engine`: 18 passed, 0 failed.
 - Approximately 94 of the 104 `test_rule_loader.cpp` cases remain for later batches
   (counting the two previously ported cases, `list_append` and `condition_append`).
+
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 10, Total 152, 6.6%.
