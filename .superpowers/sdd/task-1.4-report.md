@@ -340,3 +340,33 @@ error substrings.
 - Operator validation is syntax-level and scoped to Falco's known string
   operator/modifier combinations; Rustagon still does not type-check exception
   fields against plugin field metadata.
+
+## Batch 11
+
+### Ported and passing
+
+- `exceptions_modifier_op_scalar_value_parenthesised`
+- `exceptions_modifier_op_all_three_modifiers`
+- `exceptions_modifier_op_comp_whitespace_normalized`
+- `exceptions_modifier_op_str_op_multi_field_regression`
+
+### Engine changes
+
+- Parenthesize scalar RHS values used with compound exception operators.
+- Trim surrounding whitespace from exception comparison operators before
+  validation and condition compilation.
+
+### Verification
+
+- TDD red run: 2 passed and 2 failed for the two missing behaviors.
+- Targeted green run: 4 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 106 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 98 (`94 + 4`),
+  Total 152, 64.5%.
+
+### Transition
+
+- `test_rule_loader.cpp` is exhausted after skipping the six `evt.type` warning
+  cases documented in batch 4.
+- Task 1.5+ should continue with other engine unit files, beginning with
+  `test_filter_macro_resolver.cpp` and related suites.

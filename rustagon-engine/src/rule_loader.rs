@@ -697,6 +697,7 @@ fn validate_exception_comps(exception: &ExceptionSpec) -> Result<(), String> {
         .map(Vec::as_slice)
         .unwrap_or_else(|| std::slice::from_ref(comps));
     for comp in comps.iter().filter_map(serde_yaml::Value::as_str) {
+        let comp = comp.trim();
         if compound_exception_comp_valid(comp) {
             continue;
         }
@@ -1002,8 +1003,11 @@ fn compile_condition_with_exceptions(
                 .zip(row)
                 .filter_map(|((field, comp), value)| {
                     let field = field.as_str()?;
-                    let comp = comp.as_str()?;
-                    let value = render_exception_value(value)?;
+                    let comp = comp.as_str()?.trim();
+                    let mut value = render_exception_value(value)?;
+                    if comp.rsplit_once(' ').is_some() && !value.starts_with('(') {
+                        value = format!("({value})");
+                    }
                     Some(format!(
                         "{} {comp} {value}",
                         normalize_exception_field(field)

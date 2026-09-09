@@ -2,7 +2,7 @@
 
 | Suite | Pass | Total | % |
 |-------|------|-------|---|
-| falco_unit_engine | 94 | 152 | 61.8 |
+| falco_unit_engine | 98 | 152 | 64.5 |
 | falco_unit_app | 0 | 81 | 0 |
 | libs_equiv | 0 | TBD | 0 |
 | e2e_evtgen | 0 | 20 | 0 |
