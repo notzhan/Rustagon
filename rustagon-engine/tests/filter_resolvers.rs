@@ -176,6 +176,20 @@ fn evttype_warning_for_broad_condition() {
 }
 
 #[test]
+fn evttype_warning_when_finite_set_exceeds_one_hundred() {
+    let condition = |count| {
+        let event_types = (0..count)
+            .map(|index| format!("event_type_{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("evt.type in ({event_types})")
+    };
+
+    assert!(!has_evt_type_warning(&load(&rule(&condition(100), ""))));
+    assert!(has_evt_type_warning(&load(&rule(&condition(101), ""))));
+}
+
+#[test]
 fn evttype_warning_disabled_by_warn_evttypes() {
     assert!(!has_evt_type_warning(&load(&rule(
         "proc.name = cat",

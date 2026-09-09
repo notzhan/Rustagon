@@ -91,10 +91,14 @@ enum EventTypeSet {
     Empty,
 }
 
-/// Conservative symbolic event-type analysis. `false` means the condition is
-/// either statically impossible or constrained to a finite set of event types.
+/// Conservative symbolic event-type analysis. Warn for unconstrained conditions
+/// or finite sets above Falco's 100-event performance threshold.
 pub fn matches_too_many_event_types(filter: &Expr) -> bool {
-    matches!(event_types(filter), EventTypeSet::All)
+    match event_types(filter) {
+        EventTypeSet::All => true,
+        EventTypeSet::Some(event_types) => event_types.len() > 100,
+        EventTypeSet::Empty => false,
+    }
 }
 
 fn event_types(filter: &Expr) -> EventTypeSet {

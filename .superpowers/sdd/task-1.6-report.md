@@ -29,3 +29,11 @@ Status: DONE_WITH_CONCERNS
 
 - Full `cargo test --workspace` remains blocked outside this task by existing `rustagon-ebpf` incompatibilities with aya 0.2.1 (`RingBuf` constructor/reserve/submit APIs and `ProbeContext::arg` Option handling).
 - Strict all-target clippy reaches one pre-existing parser test warning at `rustagon-parser/src/parser.rs:145` (`assert_eq!(bool, true)`); this task did not modify that file.
+
+## Review fix: finite event-type threshold
+
+- Updated the event-type warning predicate to match Falco's threshold: unconstrained conditions and resolved finite sets larger than 100 now warn.
+- Added a public loader regression test covering the exact boundary: 100 distinct `evt.type in (...)` values do not warn, while 101 do.
+- RED: the focused regression test failed because the 101-value set produced no warning.
+- GREEN: the focused regression test passed after the predicate fix; `cargo test -p rustagon-engine` passed all engine tests.
+- Formatting and whitespace checks passed for the touched Rust files and diff. Workspace-wide `cargo fmt --all -- --check` remains blocked by pre-existing formatting drift in unrelated crates.
