@@ -11,7 +11,7 @@ use nom::{
     Err as NomErr, IResult,
 };
 
-use super::ast::{BinaryOp, Expr, Value};
+use super::ast::{BinaryOp, Expr, Operand, Value};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilterError {
@@ -84,32 +84,71 @@ fn parse_primary(input: &str) -> IResult<&str, Expr> {
 }
 
 fn parse_predicate(input: &str) -> IResult<&str, Expr> {
-    let (input, field) = parse_field(input)?;
+    let (input, left) = parse_operand(input)?;
     let (input, _) = multispace0(input)?;
 
     if let Ok((rest, _)) = keyword("exists")(input) {
+        return Ok((rest, Expr::Exists { left }));
+    }
+
+    let (input, op) = match parse_binary_op(input) {
+        Ok(parsed) => parsed,
+        Err(NomErr::Error(_)) => {
+            return match left {
+                Operand::Field(identifier) if !identifier.contains('.') => {
+                    Ok((input, Expr::Identifier(identifier)))
+                }
+                _ => Err(NomErr::Error(NomError::new(input, ErrorKind::Tag))),
+            };
+        }
+        Err(error) => return Err(error),
+    };
+    let (input, value) = preceded(multispace0, parse_value)(input)?;
+    Ok((input, Expr::Binary { left, op, value }))
+}
+
+fn parse_operand(input: &str) -> IResult<&str, Operand> {
+    if input.starts_with(['"', '\'']) {
+        return map(parse_quoted, Operand::Literal)(input);
+    }
+    if input.starts_with('(') {
+        return parse_operand_list(input);
+    }
+
+    let (input, name) =
+        take_while1(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))(
+            input,
+        )?;
+    let (after_space, _) = multispace0(input)?;
+    if let Ok((rest, _)) = char::<_, NomError<_>>('(')(after_space) {
+        let (rest, args) = separated_list1(
+            delimited(multispace0, char(','), multispace0),
+            preceded(multispace0, parse_operand),
+        )(rest)?;
+        let (rest, _) = delimited(multispace0, char(')'), multispace0)(rest)?;
         return Ok((
             rest,
-            Expr::Exists {
-                field: field.to_owned(),
+            Operand::Transformer {
+                name: name.to_owned(),
+                args,
             },
         ));
     }
-
-    let (input, op) = parse_binary_op(input)?;
-    let (input, value) = preceded(multispace0, parse_value)(input)?;
-    Ok((
-        input,
-        Expr::Binary {
-            field: field.to_owned(),
-            op,
-            value,
-        },
-    ))
+    Ok((input, Operand::Field(name.to_owned())))
 }
 
-fn parse_field(input: &str) -> IResult<&str, &str> {
-    take_while1(|c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '[' | ']'))(input)
+fn parse_operand_list(input: &str) -> IResult<&str, Operand> {
+    map(
+        delimited(
+            delimited(multispace0, char('('), multispace0),
+            separated_list1(
+                delimited(multispace0, char(','), multispace0),
+                parse_operand,
+            ),
+            delimited(multispace0, char(')'), multispace0),
+        ),
+        Operand::List,
+    )(input)
 }
 
 fn parse_binary_op(input: &str) -> IResult<&str, BinaryOp> {
@@ -117,12 +156,15 @@ fn parse_binary_op(input: &str) -> IResult<&str, BinaryOp> {
         value(BinaryOp::NotEq, tag("!=")),
         value(BinaryOp::LessEq, tag("<=")),
         value(BinaryOp::GreaterEq, tag(">=")),
+        value(BinaryOp::Eq, tag("==")),
         value(BinaryOp::Eq, tag("=")),
         value(BinaryOp::Less, tag("<")),
         value(BinaryOp::Greater, tag(">")),
+        value(BinaryOp::IContains, keyword("icontains")),
         value(BinaryOp::Contains, keyword("contains")),
         value(BinaryOp::StartsWith, keyword("startswith")),
         value(BinaryOp::EndsWith, keyword("endswith")),
+        value(BinaryOp::Intersects, keyword("intersects")),
         value(BinaryOp::In, keyword("in")),
         value(BinaryOp::Pmatch, keyword("pmatch")),
         value(BinaryOp::Glob, keyword("glob")),

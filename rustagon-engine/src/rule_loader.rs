@@ -1,4 +1,6 @@
+use crate::filter_warnings::{matches_too_many_event_types, TOO_MANY_EVENT_TYPES};
 use crate::macro_resolver;
+use rustagon_parser::filter::parse_filter;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -18,6 +20,7 @@ pub struct RuleDetails {
     pub enabled: bool,
     pub capture: bool,
     pub capture_duration: u32,
+    pub warn_evttypes: bool,
     source: String,
     exceptions: Vec<ExceptionSpec>,
 }
@@ -46,6 +49,8 @@ struct YamlItem {
     capture: Option<bool>,
     #[serde(default)]
     capture_duration: Option<u32>,
+    #[serde(default)]
+    warn_evttypes: Option<bool>,
     #[serde(default)]
     source: Option<String>,
     #[serde(default)]
@@ -78,6 +83,8 @@ struct OverrideSpec {
     capture: Option<String>,
     #[serde(default)]
     capture_duration: Option<String>,
+    #[serde(default)]
+    warn_evttypes: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -218,6 +225,19 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
             warnings.push(format!(
                 "A list is defined in the rules content but is not used by any other list, macro, or rule (list `{name}`)"
             ));
+        }
+    }
+
+    for rule in rule_details
+        .values()
+        .filter(|rule| rule.enabled && rule.source == "syscall" && rule.warn_evttypes)
+    {
+        if let Ok(expanded) = macro_resolver::resolve_macros(&rule.condition, &macros) {
+            if let Ok(filter) = parse_filter(&expanded) {
+                if matches_too_many_event_types(&filter) {
+                    warnings.push(TOO_MANY_EVENT_TYPES.to_string());
+                }
+            }
         }
     }
 
@@ -383,6 +403,11 @@ fn apply_rule(
                 item.capture_duration.is_some(),
                 overrides.capture_duration.as_deref(),
             ),
+            (
+                "warn_evttypes",
+                item.warn_evttypes.is_some(),
+                overrides.warn_evttypes.as_deref(),
+            ),
         ] {
             if present && mode.is_none() {
                 return Err(format!("Unexpected key '{key}'"));
@@ -480,6 +505,12 @@ fn apply_rule(
             overrides.and_then(|spec| spec.capture_duration.as_deref()),
             "capture_duration",
         )?;
+        apply_bool_override(
+            &mut previous.warn_evttypes,
+            item.warn_evttypes,
+            overrides.and_then(|spec| spec.warn_evttypes.as_deref()),
+            "warn_evttypes",
+        )?;
         if let Some(mode) = exception_mode {
             let exceptions = item.exceptions.unwrap_or_default();
             if mode == "append" {
@@ -502,6 +533,7 @@ fn apply_rule(
                 enabled: item.enabled.unwrap_or(true),
                 capture: item.capture.unwrap_or(false),
                 capture_duration: item.capture_duration.unwrap_or(0),
+                warn_evttypes: item.warn_evttypes.unwrap_or(true),
                 source: item
                     .source
                     .filter(|source| !source.is_empty())
@@ -620,6 +652,7 @@ impl OverrideSpec {
             self.exceptions.as_deref(),
             self.capture.as_deref(),
             self.capture_duration.as_deref(),
+            self.warn_evttypes.as_deref(),
         ]
         .into_iter()
         .flatten()

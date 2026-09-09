@@ -1,4 +1,4 @@
-use super::ast::{Expr, Value};
+use super::ast::{Expr, Operand, Value};
 
 pub fn print_filter(expr: &Expr) -> String {
     print_expr(expr, 0)
@@ -18,10 +18,16 @@ fn print_expr(expr: &Expr, parent_precedence: u8) -> String {
             print_expr(right, precedence)
         ),
         Expr::Not(inner) => format!("not {}", print_expr(inner, precedence)),
-        Expr::Binary { field, op, value } => {
-            format!("{field} {} {}", op.as_str(), print_value(value))
+        Expr::Identifier(identifier) => identifier.clone(),
+        Expr::Binary { left, op, value } => {
+            format!(
+                "{} {} {}",
+                print_operand(left),
+                op.as_str(),
+                print_value(value)
+            )
         }
-        Expr::Exists { field } => format!("{field} exists"),
+        Expr::Exists { left } => format!("{} exists", print_operand(left)),
     };
 
     if precedence < parent_precedence {
@@ -36,7 +42,29 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Or(..) => 1,
         Expr::And(..) => 2,
         Expr::Not(..) => 3,
-        Expr::Binary { .. } | Expr::Exists { .. } => 4,
+        Expr::Identifier(_) | Expr::Binary { .. } | Expr::Exists { .. } => 4,
+    }
+}
+
+fn print_operand(operand: &Operand) -> String {
+    match operand {
+        Operand::Field(field) => field.clone(),
+        Operand::Transformer { name, args } => format!(
+            "{name}({})",
+            args.iter()
+                .map(print_operand)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Operand::List(values) => format!(
+            "({})",
+            values
+                .iter()
+                .map(print_operand)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Operand::Literal(value) => print_value(value),
     }
 }
 

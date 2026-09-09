@@ -1,4 +1,6 @@
 mod engine;
+pub mod filter_details;
+pub mod filter_warnings;
 mod load_result;
 pub mod macro_resolver;
 mod rule_loader;
