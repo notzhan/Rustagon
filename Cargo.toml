@@ -3,6 +3,7 @@ members = [
     "rustagon-common",
     "rustagon-ebpf",
     "rustagon-parser",
+    "rustagon-engine",
     "rustagon-core",
     "xtask",
 ]
