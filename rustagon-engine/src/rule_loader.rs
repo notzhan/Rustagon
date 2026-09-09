@@ -15,6 +15,7 @@ pub struct RuleDetails {
     pub condition: String,
     pub output: Option<String>,
     pub priority: Option<String>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,6 +37,8 @@ struct YamlItem {
     #[serde(default)]
     priority: Option<String>,
     #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
     append: bool,
     #[serde(default, rename = "override")]
     override_spec: Option<OverrideSpec>,
@@ -53,6 +56,8 @@ struct OverrideSpec {
     output: Option<String>,
     #[serde(default)]
     priority: Option<String>,
+    #[serde(default)]
+    enabled: Option<String>,
 }
 
 const WARNING_APPEND: &str = "'append' key is deprecated. Add an 'append' entry (e.g. 'condition: append') under 'override' instead.";
@@ -136,6 +141,7 @@ pub(crate) fn load_sequence(content: &str) -> Result<Option<SequenceLoad>, Seque
     let rules =
         rule_details
             .iter()
+            .filter(|(_, details)| details.enabled)
             .map(|(name, details)| {
                 let expanded = macro_resolver::resolve_macros(&details.condition, &macros)
                     .map_err(|error| SequenceError {
@@ -200,13 +206,45 @@ fn apply_macro(item: YamlItem, macros: &mut HashMap<String, String>) -> Result<(
 
 fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Result<(), String> {
     let name = item.rule.clone().expect("checked by caller");
-    let condition = item
-        .condition
-        .clone()
-        .ok_or_else(|| "rule is missing condition".to_string())?;
     let overrides = item.override_spec.as_ref();
     if item.append && overrides.is_some() {
         return Err(ERROR_OVERRIDE_APPEND.to_string());
+    }
+    if item.append && item.condition.is_none() {
+        return Err("Appended rule must have exceptions or condition property".to_string());
+    }
+    if let Some(overrides) = overrides {
+        for (key, present, mode) in [
+            ("desc", item.desc.is_some(), overrides.desc.as_deref()),
+            (
+                "condition",
+                item.condition.is_some(),
+                overrides.condition.as_deref(),
+            ),
+            ("output", item.output.is_some(), overrides.output.as_deref()),
+            (
+                "priority",
+                item.priority.is_some(),
+                overrides.priority.as_deref(),
+            ),
+            (
+                "enabled",
+                item.enabled.is_some(),
+                overrides.enabled.as_deref(),
+            ),
+        ] {
+            if present && mode.is_none() {
+                return Err(format!("Unexpected key '{key}'"));
+            }
+            if !present && mode.is_some() {
+                return Err(if key == "condition" && mode == Some("append") {
+                    "An append override for 'condition' was specified but 'condition' is not defined"
+                        .to_string()
+                } else {
+                    format!("'{key}' was specified but '{key}' is not defined")
+                });
+            }
+        }
     }
     if let Some(mode) = overrides.and_then(|spec| spec.priority.as_deref()) {
         if mode == "append" {
@@ -231,7 +269,10 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
             }
         })?;
         if item.append {
-            append_text(&mut previous.condition, &condition);
+            append_text(
+                &mut previous.condition,
+                item.condition.as_deref().expect("validated above"),
+            );
             return Ok(());
         }
         apply_string_override(
@@ -259,7 +300,16 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
             overrides.and_then(|spec| spec.priority.as_deref()),
             "priority",
         )?;
+        apply_bool_override(
+            &mut previous.enabled,
+            item.enabled,
+            overrides.and_then(|spec| spec.enabled.as_deref()),
+            "enabled",
+        )?;
     } else {
+        let condition = item
+            .condition
+            .ok_or_else(|| "rule is missing condition".to_string())?;
         rules.insert(
             name,
             RuleDetails {
@@ -267,6 +317,7 @@ fn apply_rule(item: YamlItem, rules: &mut HashMap<String, RuleDetails>) -> Resul
                 condition,
                 output: item.output,
                 priority: item.priority.map(|value| normalize_priority(&value)),
+                enabled: item.enabled.unwrap_or(true),
             },
         );
     }
@@ -321,6 +372,23 @@ fn apply_optional_override(
     Ok(())
 }
 
+fn apply_bool_override(
+    target: &mut bool,
+    value: Option<bool>,
+    mode: Option<&str>,
+    key: &str,
+) -> Result<(), String> {
+    let Some(mode) = mode else { return Ok(()) };
+    validate_mode(key, mode)?;
+    if mode == "append" {
+        return Err(format!(
+            "Key '{key}' cannot be appended to, use 'replace' instead"
+        ));
+    }
+    *target = value.expect("override value validated by caller");
+    Ok(())
+}
+
 fn append_text(target: &mut String, value: &str) {
     target.push(' ');
     target.push_str(value.trim_start());
@@ -342,6 +410,7 @@ impl OverrideSpec {
             self.desc.as_deref(),
             self.output.as_deref(),
             self.priority.as_deref(),
+            self.enabled.as_deref(),
         ]
         .into_iter()
         .flatten()

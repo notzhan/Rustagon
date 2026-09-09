@@ -56,3 +56,30 @@ error substrings.
 
 - `cargo test -p rustagon-engine`: 28 passed, 0 failed.
 - Updated `parity/METRICS.md`: `falco_unit_engine` Pass 20, Total 152, 13.2%.
+
+## Batch 3
+
+### Ported and passing
+
+- `list_override_replace_before_list_definition`
+- `list_append_before_list_definition`
+- `list_override_append_after_list_definition`
+- `list_append_after_list_definition`
+- `rule_override_without_field`
+- `rule_override_extra_field`
+- `missing_enabled_key_with_override`
+- `rule_override_with_enabled`
+- `rule_not_enabled`
+- `empty_append_rule_is_rejected`
+
+### Engine changes
+
+- Added rule enabled-state loading and field-level enabled replacement.
+- Excluded disabled rules from the compiled ruleset.
+- Added Falco-compatible diagnostics for absent override values, unexpected
+  override fields, and empty legacy rule appends.
+
+### Verification
+
+- `cargo test -p rustagon-engine`: 38 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 30, Total 152, 19.7%.
