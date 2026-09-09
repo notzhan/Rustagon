@@ -650,6 +650,7 @@ fn validate_exceptions(
         warnings.push("Overriding/appending exception with no values".to_string());
     }
     for (index, exception) in exceptions.iter().enumerate() {
+        validate_exception_comps(exception)?;
         if exception.name.is_some()
             && exceptions[..index]
                 .iter()
@@ -681,6 +682,49 @@ fn validate_exceptions(
         }
     }
     Ok(())
+}
+
+fn validate_exception_comps(exception: &ExceptionSpec) -> Result<(), String> {
+    let Some(comps) = exception.comps.as_ref() else {
+        return Ok(());
+    };
+    let scalar_field = exception
+        .fields
+        .as_ref()
+        .is_some_and(serde_yaml::Value::is_string);
+    let comps = comps
+        .as_sequence()
+        .map(Vec::as_slice)
+        .unwrap_or_else(|| std::slice::from_ref(comps));
+    for comp in comps.iter().filter_map(serde_yaml::Value::as_str) {
+        if compound_exception_comp_valid(comp) {
+            continue;
+        }
+        if scalar_field {
+            return Err("comps must be one of the supported comparison operators".to_string());
+        }
+        return Err(format!("'{comp}' is not a supported comparison operator"));
+    }
+    Ok(())
+}
+
+fn compound_exception_comp_valid(comp: &str) -> bool {
+    let Some((base, modifier)) = comp.rsplit_once(' ') else {
+        return !matches!(comp, "oneof" | "anyof" | "allof");
+    };
+    matches!(modifier, "oneof" | "anyof" | "allof")
+        && matches!(
+            base,
+            "=" | "!="
+                | "contains"
+                | "icontains"
+                | "startswith"
+                | "endswith"
+                | "glob"
+                | "iglob"
+                | "regex"
+                | "iregex"
+        )
 }
 
 fn looks_like_field_name(value: &str) -> bool {
@@ -976,7 +1020,13 @@ fn compile_condition_with_exceptions(
                 } else {
                     inner.to_string()
                 };
-                compiled = format!("({base} and not {})", clauses.join(" and "));
+                let clauses = clauses.join(" and ");
+                let clauses = if fields.len() > 1 {
+                    format!("({clauses})")
+                } else {
+                    clauses
+                };
+                compiled = format!("({base} and not {clauses})");
             }
         }
     }

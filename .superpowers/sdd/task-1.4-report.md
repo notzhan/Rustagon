@@ -303,3 +303,40 @@ error substrings.
 
 - This batch covers single-field compound exception modifiers; multi-field
   grouping and invalid compound-operator rejection remain in subsequent tests.
+
+## Batch 10
+
+### Ported and passing
+
+- `exceptions_modifier_op_multi_field_mixed`
+- `exceptions_modifier_op_multi_field_both_compound`
+- `exceptions_modifier_op_invalid_base_operator`
+- `exceptions_modifier_op_invalid_base_operator_scalar_field`
+- `exceptions_modifier_op_list_op_with_modifier`
+- `exceptions_modifier_op_numeric_op_with_modifier`
+- `exceptions_modifier_op_modifier_alone`
+- `exceptions_modifier_op_list_op_unchanged`
+- `exceptions_modifier_op_eq_oneof`
+- `exceptions_modifier_op_regex_oneof`
+
+### Engine changes
+
+- Parenthesize multi-field exception conjunctions so `not` applies to the
+  complete tuple.
+- Validate compound comparison operators for both scalar and list field forms,
+  accepting string operators with `oneof`, `anyof`, or `allof` while rejecting
+  invalid bases, list/numeric bases with modifiers, and bare modifiers.
+
+### Verification
+
+- TDD red run: 4 passed and 6 failed for the six missing behaviors.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 102 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 94 (`84 + 10`),
+  Total 152, 61.8%.
+
+### Concern
+
+- Operator validation is syntax-level and scoped to Falco's known string
+  operator/modifier combinations; Rustagon still does not type-check exception
+  fields against plugin field metadata.
