@@ -54,3 +54,10 @@ after implementation. `falco_unit_app` is now 30/81 (37.0%).
 Remaining gaps include schema validation diagnostics, escaped dotted-key
 read/write syntax, wrong-strategy fallback diagnostics, config-file CLI loading,
 and the reload/watch behavior that depends on the application runtime.
+
+## Batch 2 review fix
+
+Falco maps `init_config: null` to an empty string (`""`), not YAML null. Updated
+`deserialize_plugin_init_config` to return `Value::String("")` for null input,
+and adjusted `plugin_init_config_accepts_null_as_empty` to assert empty-string
+semantics matching Falco.

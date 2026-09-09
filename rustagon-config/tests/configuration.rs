@@ -364,7 +364,10 @@ fn plugin_init_config_accepts_json_strings() {
 fn plugin_init_config_accepts_null_as_empty() {
     let config =
         FalcoConfig::load_from_str("plugins:\n  - name: test\n    init_config: null\n").unwrap();
-    assert!(config.plugins[0].init_config.is_null());
+    assert_eq!(
+        config.plugins[0].init_config,
+        Value::String(String::new())
+    );
 }
 
 #[test]

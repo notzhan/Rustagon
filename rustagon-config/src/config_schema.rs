@@ -103,6 +103,7 @@ where
 {
     let value = Value::deserialize(deserializer)?;
     match value {
+        Value::Null => Ok(Value::String(String::new())),
         Value::String(ref text) if !text.is_empty() => {
             Ok(serde_yaml::from_str(text).unwrap_or(value))
         }
