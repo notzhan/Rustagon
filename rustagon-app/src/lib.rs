@@ -5,6 +5,7 @@ pub mod capture;
 pub mod cli;
 pub mod interesting_sets;
 pub mod load_config;
+pub mod outputs;
 pub mod pidfile;
 mod ppm_events;
 pub mod restart_handler;
