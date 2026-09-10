@@ -3,7 +3,10 @@ use crate::fields;
 use crate::plugins::{requirements_satisfied, PluginRequirement, PluginVersion};
 use crate::ruleset::{MatchType, Ruleset};
 use crate::{rule_loader, CompiledRuleset, LoadResult, RuleDetails};
-use rustagon_parser::parse_rules;
+use rustagon_parser::{
+    filter::{parse_filter, BinaryOp, Expr, Operand, Value},
+    parse_rules,
+};
 use std::collections::{HashMap, HashSet};
 
 pub const DEFAULT_RULESET: &str = "falco-default-ruleset";
@@ -244,6 +247,28 @@ impl FalcoEngine {
         self.selections.enabled_count(id)
     }
 
+    /// Returns the positively selected `evt.type` names for enabled rules.
+    ///
+    /// Negated event constraints narrow a rule and therefore do not make an
+    /// event interesting on their own.
+    pub fn event_names_for_ruleset(&self, source: &str, ruleset: &str) -> HashSet<String> {
+        let Some(id) = self.ruleset_ids.get(ruleset) else {
+            return HashSet::new();
+        };
+        let mut names = HashSet::new();
+        for (name, details) in &self.ruleset.rule_details {
+            if self.selections.is_enabled(name, *id) && details.source() == source {
+                if let Ok(filter) = parse_filter(&details.condition) {
+                    let mut positive = HashSet::new();
+                    let mut negative = HashSet::new();
+                    collect_event_names(&filter, false, &mut positive, &mut negative);
+                    names.extend(positive.difference(&negative).cloned());
+                }
+            }
+        }
+        names
+    }
+
     pub fn process_event(&self, evt: &Evt, ruleset_id: u16) -> Option<Alert> {
         self.ruleset
             .rule_details
@@ -417,6 +442,42 @@ impl FalcoEngine {
                         .formatted_fields
                         .insert(extra.name.clone(), extra.format.clone());
                 }
+            }
+        }
+    }
+}
+
+fn collect_event_names(
+    expr: &Expr,
+    negated: bool,
+    positive: &mut HashSet<String>,
+    negative: &mut HashSet<String>,
+) {
+    match expr {
+        Expr::And(left, right) | Expr::Or(left, right) => {
+            collect_event_names(left, negated, positive, negative);
+            collect_event_names(right, negated, positive, negative);
+        }
+        Expr::Not(inner) => collect_event_names(inner, !negated, positive, negative),
+        Expr::Binary { left, op, value }
+            if matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::In)
+                && matches!(left, Operand::Field(field) if field == "evt.type") =>
+        {
+            let is_negative = negated ^ matches!(op, BinaryOp::NotEq);
+            collect_values(value, if is_negative { negative } else { positive });
+        }
+        _ => {}
+    }
+}
+
+fn collect_values(value: &Value, names: &mut HashSet<String>) {
+    match value {
+        Value::Bare(value) | Value::Quoted(value) => {
+            names.insert(value.trim_matches(['\'', '"']).to_string());
+        }
+        Value::List(values) => {
+            for value in values {
+                collect_values(value, names);
             }
         }
     }

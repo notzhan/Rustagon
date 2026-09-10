@@ -3,6 +3,15 @@ use serde_yaml::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct FalcoLibsConfig {
+    pub thread_table_size: u64,
+    pub thread_table_auto_purging_interval_s: u64,
+    pub thread_table_auto_purging_thread_timeout_s: u64,
+    pub snaplen: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EngineConfig {
     pub kind: String,
     pub kmod: DriverConfig,
@@ -230,9 +239,8 @@ impl<'de> Deserialize<'de> for MergeStrategy {
             "append" => Ok(Self::Append),
             "override" => Ok(Self::Override),
             "add-only" => Ok(Self::AddOnly),
-            other => Err(serde::de::Error::custom(format!(
-                "unknown config file merge strategy `{other}`"
-            ))),
+            // Falco reports schema validation failure but continues with append.
+            _ => Ok(Self::Append),
         }
     }
 }

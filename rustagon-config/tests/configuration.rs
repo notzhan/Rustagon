@@ -25,7 +25,7 @@ watch_config_files: false
     assert_eq!(config.rules_files, ["/etc/falco/falco_rules.yaml"]);
     assert_eq!(config.priority, "warning");
     assert!(config.json_output);
-    assert_eq!(config.load_plugins, ["k8saudit", "json"]);
+    assert_eq!(config.load_plugins.names(), ["k8saudit", "json"]);
     assert!(!config.watch_config_files);
 }
 
@@ -364,10 +364,7 @@ fn plugin_init_config_accepts_json_strings() {
 fn plugin_init_config_accepts_null_as_empty() {
     let config =
         FalcoConfig::load_from_str("plugins:\n  - name: test\n    init_config: null\n").unwrap();
-    assert_eq!(
-        config.plugins[0].init_config,
-        Value::String(String::new())
-    );
+    assert_eq!(config.plugins[0].init_config, Value::String(String::new()));
 }
 
 #[test]
