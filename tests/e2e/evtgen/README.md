@@ -5,7 +5,7 @@ This workspace test crate vendors the 20 YAML files from Falco tip's
 cases, and recursively resolves `%{ item.* }` values while preserving exact
 template values such as `null` and mappings.
 
-## Offline test
+## Offline tests
 
 The default test suite needs no root privileges or Linux capabilities:
 
@@ -13,23 +13,29 @@ The default test suite needs no root privileges or Linux capabilities:
 cargo test -p rustagon-e2e-evtgen
 ```
 
-`run_shell_untrusted_nginx_bash_matches_offline` selects the `nginx -> bash`
-HostRunner matrix case, injects synthetic exec events through
-`rustagon_sinsp::Inspector`, and evaluates the resulting event with
-`rustagon_engine::FalcoEngine`. It checks the alert rule, NOTICE priority,
-syscall source, `proc.name=bash`, and `proc.pname=nginx`.
+`all_twenty_evtgen_fixtures_match_offline` is table-driven over every suite
+file. It selects the first expanded HostRunner case, builds its process,
+container, file-descriptor, and syscall state through `rustagon_sinsp`, and
+evaluates the synthetic event with `rustagon_engine`. For every suite it checks
+the alert rule, priority, source, and all fixture `outputFields`.
 
-The checked-in rule is a minimal executable excerpt of **Run shell untrusted**.
-Its source and the deliberate narrowing needed by Rustagon's currently
-available fields are recorded in `fixtures/run_shell_untrusted_rules.yaml`.
+`fixtures/rules/all_evtgen_rules.yaml` contains minimal executable excerpts
+derived from falcosecurity/rules. The excerpts preserve each representative's
+core observable signal while deliberately narrowing lists and conditions to
+fields available in Rustagon's offline model.
 
 ## Live test
 
-A live `ModernEbpfSource` test is deferred. The Phase 4 source can attach when
-an eBPF object and CAP_BPF/root are available, but its current `sys_enter`
-records do not carry the exec process metadata needed to reproduce and assert
-this scenario. Task 5.2 must add that live event fidelity before claiming an
-evtgen scenario pass. The parity metric therefore remains 0/20.
+A live `ModernEbpfSource` test remains deferred. All 20 suites below are
+offline-only: the Phase 4 source can attach with an eBPF object and
+CAP_BPF/root, but current `sys_enter` records do not carry enough event
+arguments and process/container metadata to reproduce these assertions.
+
+To extend a suite to live coverage, add capture decoding for its syscall and
+arguments, enrich the resulting event with process/FD/container state, execute
+the HostRunner resources and steps in an isolated privileged test, and reuse
+the same rule/source/priority/output-field assertions. Do not replace the
+offline result until that privileged path passes.
 
 ## Fixture inventory (20)
 

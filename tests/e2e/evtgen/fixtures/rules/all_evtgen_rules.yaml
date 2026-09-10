@@ -1,0 +1,127 @@
+# Minimal executable excerpts derived from falcosecurity/rules falco_rules.yaml.
+# Source (retrieved 2026-09-10):
+# https://github.com/falcosecurity/rules/blob/724be6f2dacab9d3da1e5337dc814b2f92a67193/rules/falco_rules.yaml
+# Each condition retains the suite's core observable signal and is narrowed to
+# the first expanded offline representative supported by Rustagon's fields.
+- rule: Clear Log Activities
+  desc: Truncate a log file.
+  condition: evt.type = open and fd.name = "/var/log/eg_clear_test"
+  output: Log file opened for truncation
+  priority: WARNING
+  source: syscall
+- rule: Create Hardlink Over Sensitive Files
+  desc: Create a hardlink from a sensitive file.
+  condition: evt.type = link and evt.arg.oldpath = "/etc/shadow"
+  output: Hardlink over sensitive file
+  priority: WARNING
+  source: syscall
+- rule: Create Symlink Over Sensitive Files
+  desc: Create a symlink targeting a sensitive file.
+  condition: evt.type = symlink and evt.arg.target = "/etc/shadow"
+  output: Symlink over sensitive file
+  priority: WARNING
+  source: syscall
+- rule: Debugfs Launched in Privileged Container
+  desc: Launch debugfs in a container.
+  condition: evt.type = execve and proc.name = debugfs and container.id exists
+  output: Debugfs launched in container
+  priority: WARNING
+  source: syscall
+- rule: Detect release_agent File Container Escapes
+  desc: Open a release_agent file from a container.
+  condition: evt.type = open and fd.name = "/tmp/release_agent" and container.id exists
+  output: release_agent file opened
+  priority: CRITICAL
+  source: syscall
+- rule: Directory traversal monitored file read
+  desc: Read a monitored file through a traversal path.
+  condition: evt.type = open and fd.nameraw contains "../"
+  output: Directory traversal read
+  priority: WARNING
+  source: syscall
+- rule: Disallowed SSH Connection Non Standard Port
+  desc: Connect ssh to a non-standard port.
+  condition: evt.type = connect and proc.name = ssh and fd.dport = 80
+  output: SSH non-standard port
+  priority: NOTICE
+  source: syscall
+- rule: Drop and execute new binary in container
+  desc: Execute a dropped binary from a container.
+  condition: evt.type = execve and proc.exe = "/tmp/eg_dropped" and container.id exists
+  output: Dropped binary executed
+  priority: CRITICAL
+  source: syscall
+- rule: Execution from /dev/shm
+  desc: Execute a binary from /dev/shm.
+  condition: evt.type = execve and proc.exe startswith "/dev/shm/"
+  output: Execution from dev shm
+  priority: WARNING
+  source: syscall
+- rule: Fileless execution via memfd_create
+  desc: Execute a writable binary from memfd.
+  condition: evt.type = execve and evt.arg.flags contains EXE_FROM_MEMFD
+  output: Fileless execution
+  priority: CRITICAL
+  source: syscall
+- rule: Find AWS Credentials
+  desc: Search for AWS credential names.
+  condition: evt.type = execve and proc.name = grep and proc.args contains aws_access_key_id
+  output: AWS credentials searched
+  priority: WARNING
+  source: syscall
+- rule: Netcat Remote Code Execution in Container
+  desc: Run netcat with an exec option in a container.
+  condition: evt.type = execve and proc.name = nc and proc.args contains "/bin/sh" and container.id exists
+  output: Netcat remote execution
+  priority: WARNING
+  source: syscall
+- rule: Packet socket created in container
+  desc: Create an AF_PACKET socket in a container.
+  condition: evt.type = socket and evt.arg.domain = AF_PACKET and container.id exists
+  output: Packet socket created
+  priority: NOTICE
+  source: syscall
+- rule: Read sensitive file trusted after startup
+  desc: A trusted server reads a sensitive file.
+  condition: evt.type = open and fd.name = "/etc/shadow" and proc.name = nginx
+  output: Trusted server read sensitive file
+  priority: WARNING
+  source: syscall
+- rule: Read sensitive file untrusted
+  desc: An untrusted process reads a sensitive file.
+  condition: >
+    evt.type = open and fd.name = "/etc/shadow" and proc.name = evtgen
+    and not fd.nameraw exists
+  output: Untrusted process read sensitive file
+  priority: WARNING
+  source: syscall
+- rule: Redirect STDOUT/STDIN to Network Connection in Container
+  desc: Duplicate a network socket onto a standard descriptor.
+  condition: evt.type = dup and proc.name = eg_redirect and fd.num = 0 and container.id exists
+  output: Standard stream redirected
+  priority: NOTICE
+  source: syscall
+- rule: Remove Bulk Data from Disk
+  desc: Run a bulk data removal utility.
+  condition: evt.type = execve and proc.name = shred
+  output: Bulk data removal
+  priority: WARNING
+  source: syscall
+- rule: Run shell untrusted
+  desc: Spawn a shell below a protected application.
+  condition: evt.type = execve and proc.name = ash and proc.pname = fluentd
+  output: Shell spawned by untrusted binary
+  priority: NOTICE
+  source: syscall
+- rule: Search Private Keys or Passwords
+  desc: Search for a private key header.
+  condition: evt.type = execve and proc.name = grep and proc.args contains "BEGIN PRIVATE"
+  output: Private keys searched
+  priority: WARNING
+  source: syscall
+- rule: System user interactive
+  desc: A system user runs a command beneath sshd.
+  condition: evt.type = execve and proc.name = id and proc.pname = sshd and user.name = bin
+  output: System user interactive
+  priority: INFORMATIONAL
+  source: syscall

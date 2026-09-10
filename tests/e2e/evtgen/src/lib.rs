@@ -88,6 +88,231 @@ pub fn expand_suite(suite: &Suite) -> Result<Vec<ExpandedCase>> {
     Ok(expanded)
 }
 
+pub fn run_offline_case(fixture: &str, case: &ExpandedCase, rules: &str) -> Result<OfflineAlert> {
+    if case.runner != "HostRunner" {
+        bail!(
+            "offline runner only supports HostRunner, got {:?}",
+            case.runner
+        );
+    }
+
+    let context_processes = case.context.get("processes").and_then(Value::as_sequence);
+    let mut processes = Vec::new();
+    if let Some(context_processes) = context_processes {
+        for process in context_processes {
+            let name = process
+                .get("name")
+                .and_then(Value::as_str)
+                .context("process name must be a string")?;
+            let exe = process.get("exe").and_then(Value::as_str).unwrap_or(name);
+            let args = process
+                .get("args")
+                .and_then(Value::as_str)
+                .map(|args| vec![args.to_string()])
+                .unwrap_or_default();
+            let user = process
+                .get("user")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            processes.push((name.to_owned(), exe.to_owned(), args, user));
+        }
+    }
+    if processes.is_empty() {
+        let (name, exe) = if fixture == "fileless_execution_via_memfd_create" {
+            ("eg_memfd", "/memfd:eg_memfd")
+        } else {
+            ("evtgen", "/usr/bin/evtgen")
+        };
+        processes.push((name.into(), exe.into(), Vec::new(), None));
+    }
+
+    let mut inspector = Inspector::default();
+    let leaf_tid = 10_000 + processes.len() as i64 - 1;
+    if case
+        .context
+        .get("container")
+        .is_some_and(|container| !container.is_null())
+    {
+        inspector.set_container_cgroup(
+            leaf_tid,
+            "/docker/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        );
+    }
+
+    let mut event = None;
+    for (index, (name, exe, args, _)) in processes.iter().enumerate() {
+        let pid = 10_000 + index as i64;
+        event = Some(inspector.inject(raw(
+            pid,
+            index as u64 + 1,
+            RawEventKind::Exec {
+                pid,
+                ppid: if index == 0 { 1 } else { pid - 1 },
+                comm: name.clone(),
+                exe: exe.clone(),
+                exepath: if exe.starts_with('/') {
+                    exe.clone()
+                } else {
+                    format!("/usr/bin/{exe}")
+                },
+                args: args.clone(),
+            },
+        )));
+    }
+    let mut event = event.context("HostRunner process chain must not be empty")?;
+
+    match fixture {
+        "clear_log_activities"
+        | "detect_release_agent_file_container_escapes"
+        | "directory_traversal_monitored_file_read"
+        | "read_sensitive_file_trusted_after_startup"
+        | "read_sensitive_file_untrusted" => {
+            let path = match fixture {
+                "directory_traversal_monitored_file_read" => item_text(case, "fdname")?,
+                "read_sensitive_file_trusted_after_startup" => "/etc/shadow".into(),
+                _ => item_text(case, "target")?,
+            };
+            event = inspector.inject(raw(leaf_tid, 100, RawEventKind::Open { fd: 3, path }));
+        }
+        "disallowed_ssh_connection_non_standard_port" => {
+            event = inspector.inject(raw(
+                leaf_tid,
+                100,
+                RawEventKind::Connect {
+                    fd: 7,
+                    source_ip: "192.0.2.10".into(),
+                    source_port: 40_000,
+                    destination_ip: "203.0.113.10".into(),
+                    destination_port: 80,
+                },
+            ));
+            event.fields.insert("fd.l4proto".into(), "tcp".into());
+        }
+        "redirect_stdout_stdin_to_network_connection_in_container" => {
+            inspector.inject(raw(
+                leaf_tid,
+                100,
+                RawEventKind::Connect {
+                    fd: 7,
+                    source_ip: "127.0.0.1".into(),
+                    source_port: 40_000,
+                    destination_ip: "127.0.0.1".into(),
+                    destination_port: 9_999,
+                },
+            ));
+            let new_fd = item_text(case, "newfd")?.parse().context("parse newfd")?;
+            event = inspector.inject(raw(leaf_tid, 101, RawEventKind::Dup { old_fd: 7, new_fd }));
+            event.fields.insert("fd.l4proto".into(), "tcp".into());
+        }
+        "create_hardlink_over_sensitive_files" => {
+            event.fields.insert("evt.type".into(), "link".into());
+            event
+                .fields
+                .insert("evt.arg.oldpath".into(), item_text(case, "target")?);
+            event
+                .fields
+                .insert("evt.arg.newpath".into(), "/root/eg_hardlink".into());
+        }
+        "create_symlink_over_sensitive_files" => {
+            event.fields.insert("evt.type".into(), "symlink".into());
+            event
+                .fields
+                .insert("evt.arg.target".into(), item_text(case, "target")?);
+            event.fields.insert(
+                "evt.arg.linkpath".into(),
+                "/tmp/eg_symlink_sensitive".into(),
+            );
+        }
+        "packet_socket_created_in_container" => {
+            event.fields.insert("evt.type".into(), "socket".into());
+            event
+                .fields
+                .insert("evt.arg.domain".into(), "AF_PACKET".into());
+        }
+        "fileless_execution_via_memfd_create" => {
+            event
+                .fields
+                .insert("evt.arg.flags".into(), "EXE_WRITABLE|EXE_FROM_MEMFD".into());
+        }
+        "debugfs_launched_in_privileged_container"
+        | "drop_and_execute_new_binary_in_container"
+        | "execution_from_dev_shm"
+        | "find_aws_credentials"
+        | "netcat_remote_code_execution_in_container"
+        | "remove_bulk_data_from_disk"
+        | "run_shell_untrusted"
+        | "search_private_keys_or_passwords"
+        | "system_user_interactive" => {}
+        other => bail!("no offline event recipe for fixture {other:?}"),
+    }
+
+    if fixture == "directory_traversal_monitored_file_read" {
+        event
+            .fields
+            .insert("fd.nameraw".into(), item_text(case, "pathname")?);
+    }
+    if let Some(user) = processes.last().and_then(|process| process.3.as_ref()) {
+        event.fields.insert("user.name".into(), user.clone());
+    }
+
+    let mut engine = FalcoEngine::new();
+    let loaded = engine.load_rules(rules, "all_evtgen_rules.yaml");
+    if !loaded.ok {
+        bail!("load offline evtgen rule excerpts: {:?}", loaded.errors);
+    }
+    let details = engine
+        .rule_details(&case.rule)
+        .with_context(|| format!("loaded rule details not found for {:?}", case.rule))?;
+    let priority = details
+        .priority
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if priority != case.expected_outcome.priority.to_ascii_lowercase() {
+        bail!(
+            "priority mismatch: expected {}, got {priority}",
+            case.expected_outcome.priority
+        );
+    }
+    if details.source() != case.expected_outcome.source {
+        bail!(
+            "source mismatch: expected {}, got {}",
+            case.expected_outcome.source,
+            details.source()
+        );
+    }
+
+    let alert = engine
+        .process_event(&event, 0)
+        .with_context(|| format!("synthetic event did not trigger {:?}", case.rule))?;
+    if alert.rule != case.rule {
+        bail!(
+            "rule mismatch: expected {:?}, got {:?}",
+            case.rule,
+            alert.rule
+        );
+    }
+
+    let mut output_fields = BTreeMap::new();
+    for (field, expected) in &case.expected_outcome.output_fields {
+        let expected = value_as_text(expected)?;
+        let actual = event
+            .get_field_as_string(field)
+            .with_context(|| format!("event did not expose expected output field {field:?}"))?;
+        if actual != expected {
+            bail!("field {field:?} mismatch: expected {expected:?}, got {actual:?}");
+        }
+        output_fields.insert(field.clone(), actual);
+    }
+
+    Ok(OfflineAlert {
+        rule: alert.rule,
+        priority,
+        source: details.source().into(),
+        output_fields,
+    })
+}
+
 pub fn run_shell_untrusted_offline(case: &ExpandedCase, rules: &str) -> Result<OfflineAlert> {
     if case.runner != "HostRunner" {
         bail!(
@@ -190,6 +415,23 @@ pub fn run_shell_untrusted_offline(case: &ExpandedCase, rules: &str) -> Result<O
         source: details.source().into(),
         output_fields,
     })
+}
+
+fn raw(tid: i64, timestamp: u64, kind: RawEventKind) -> RawEvent {
+    RawEvent {
+        timestamp,
+        tid,
+        type_id: 0,
+        payload: Vec::new(),
+        kind,
+    }
+}
+
+fn item_text(case: &ExpandedCase, key: &str) -> Result<String> {
+    case.item
+        .get(key)
+        .with_context(|| format!("expanded case is missing item {key:?}"))
+        .and_then(value_as_text)
 }
 
 fn expand_matrix(values: &BTreeMap<String, Value>) -> Result<Vec<BTreeMap<String, Value>>> {
