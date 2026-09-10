@@ -1,11 +1,15 @@
 use rustagon_scap::{RawEvent, RawEventKind};
 use std::collections::{HashMap, HashSet};
 
+mod container;
 mod fdtable;
 mod fields;
 mod proc_table;
 mod thread_info;
 
+pub use container::{
+    container_id_from_cgroup, ContainerLookup, ContainerMetadata, FixtureContainerLookup,
+};
 pub use fdtable::{FdInfo, FdTable};
 pub use fields::{FieldClass, FieldInfo};
 pub use proc_table::ProcessTable;
@@ -38,9 +42,27 @@ impl Evt {
 pub struct Inspector {
     process_table: ProcessTable,
     fd_table: FdTable,
+    container_lookup: Option<Box<dyn ContainerLookup>>,
+    container_ids: HashMap<i64, String>,
 }
 
 impl Inspector {
+    pub fn with_container_lookup(lookup: impl ContainerLookup + 'static) -> Self {
+        Self {
+            container_lookup: Some(Box::new(lookup)),
+            ..Self::default()
+        }
+    }
+
+    pub fn set_container_cgroup(&mut self, tid: i64, cgroup_path: &str) -> bool {
+        let Some(container_id) = container_id_from_cgroup(cgroup_path) else {
+            self.container_ids.remove(&tid);
+            return false;
+        };
+        self.container_ids.insert(tid, container_id);
+        true
+    }
+
     pub fn get_field_names() -> Vec<FieldInfo> {
         fields::registry()
     }
@@ -75,6 +97,9 @@ impl Inspector {
                 self.process_table
                     .clone_from(raw.tid, *child_tid, *child_pid);
                 self.fd_table.clone_from(raw.tid, *child_tid);
+                if let Some(container_id) = self.container_ids.get(&raw.tid).cloned() {
+                    self.container_ids.insert(*child_tid, container_id);
+                }
                 false
             }
             RawEventKind::Open { fd, path } => {
@@ -131,6 +156,7 @@ impl Inspector {
         if remove_thread_after_enrichment {
             self.process_table.remove(raw.tid);
             self.fd_table.remove_thread(raw.tid);
+            self.container_ids.remove(&raw.tid);
         }
         evt
     }
@@ -173,6 +199,17 @@ impl Inspector {
 
         if let Some(fd) = fd {
             self.fd_table.enrich(tid, fd, &mut evt);
+        }
+
+        if let Some(container_id) = self.container_ids.get(&tid) {
+            evt.fields
+                .insert("container.id".into(), container_id.clone());
+            if let Some(lookup) = self.container_lookup.as_ref() {
+                if let Ok(Some(metadata)) = lookup.lookup(container_id) {
+                    evt.fields.insert("container.name".into(), metadata.name);
+                    evt.fields.insert("container.image".into(), metadata.image);
+                }
+            }
         }
 
         evt
