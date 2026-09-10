@@ -1,6 +1,6 @@
 use rustagon_app::interesting_sets::{
-    configure_interesting_sets, default_state_syscalls, ignored_syscalls, InterestingSetsConfig,
-    InterestingSetsState, RuleEventSets,
+    all_syscall_names, configure_interesting_sets, default_state_syscalls, generic_event_names,
+    ignored_syscalls, InterestingSetsConfig, InterestingSetsState, RuleEventSets,
 };
 use rustagon_engine::FalcoEngine;
 use std::collections::BTreeSet;
@@ -16,6 +16,98 @@ const NONSYSCALL_FILTERS: &[&str] = &["evt.type in (procexit, switch, plugineven
 
 fn names(values: &[&str]) -> BTreeSet<String> {
     values.iter().map(|value| (*value).to_string()).collect()
+}
+
+fn expected_default_state() -> BTreeSet<String> {
+    names(&[
+        "accept",
+        "accept4",
+        "bind",
+        "capset",
+        "chdir",
+        "chroot",
+        "clone",
+        "clone3",
+        "close",
+        "close_range",
+        "connect",
+        "creat",
+        "dup",
+        "dup2",
+        "dup3",
+        "epoll_create",
+        "epoll_create1",
+        "eventfd",
+        "eventfd2",
+        "execve",
+        "execveat",
+        "fchdir",
+        "fcntl",
+        "fcntl64",
+        "fork",
+        "getsockopt",
+        "inotify_init",
+        "inotify_init1",
+        "io_uring_setup",
+        "memfd_create",
+        "mount",
+        "open",
+        "open_by_handle_at",
+        "openat",
+        "openat2",
+        "pidfd_getfd",
+        "pidfd_open",
+        "pipe",
+        "pipe2",
+        "prctl",
+        "prlimit64",
+        "procexit",
+        "recvfrom",
+        "recvmmsg",
+        "recvmsg",
+        "sendmmsg",
+        "sendmsg",
+        "sendto",
+        "setgid",
+        "setgid32",
+        "setregid",
+        "setresgid",
+        "setresgid32",
+        "setresuid",
+        "setresuid32",
+        "setreuid",
+        "setrlimit",
+        "setsid",
+        "setuid",
+        "setuid32",
+        "shutdown",
+        "signalfd",
+        "signalfd4",
+        "socket",
+        "socketpair",
+        "timerfd_create",
+        "umount",
+        "umount2",
+        "userfaultfd",
+        "vfork",
+    ])
+}
+
+fn expected_ignored() -> BTreeSet<String> {
+    names(&[
+        "pread64",
+        "preadv",
+        "pwrite64",
+        "pwritev",
+        "read",
+        "readv",
+        "recv",
+        "send",
+        "sendfile",
+        "sendfile64",
+        "write",
+        "writev",
+    ])
 }
 
 fn repaired_sample_rules() -> BTreeSet<String> {
@@ -42,11 +134,15 @@ fn repaired_sample_rules() -> BTreeSet<String> {
         "ptrace",
         "read",
         "setgid",
+        "setgid32",
         "setpgid",
         "setresgid",
+        "setresgid32",
         "setresuid",
+        "setresuid32",
         "setsid",
         "setuid",
+        "setuid32",
         "socket",
         "umount2",
         "vfork",
@@ -139,7 +235,7 @@ fn preconditions_postconditions() {
 fn engine_codes_nonsyscalls_set() {
     let filters = [SAMPLE_FILTERS, GENERIC_FILTERS, NONSYSCALL_FILTERS].concat();
     let sets = rule_sets(&filters);
-    let expected_events = names(&[
+    let required_events = names(&[
         "connect",
         "accept",
         "accept4",
@@ -156,8 +252,12 @@ fn engine_codes_nonsyscalls_set() {
         "asyncevent",
         "syncfs",
         "fanotify_init",
+        "perf_event_open",
+        "getsid",
+        "readlinkat",
     ]);
-    assert_eq!(sets.event_names, expected_events);
+    assert_eq!(sets.event_names.len(), 286);
+    assert!(required_events.is_subset(&sets.event_names));
     assert_eq!(
         sets.syscall_names,
         names(&[
@@ -181,10 +281,9 @@ fn engine_codes_nonsyscalls_set() {
 #[test]
 fn selection_not_allevents() {
     let state = configured(SAMPLE_FILTERS, InterestingSetsConfig::default());
-    let expected = names(&[
-        "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "clone",
-        "clone3", "fork", "vfork", "socket", "bind", "close", "procexit",
-    ]);
+    let mut expected = expected_default_state();
+    expected.extend(names(&["ptrace", "mmap", "read"]));
+    expected = expected.difference(&expected_ignored()).cloned().collect();
     assert_eq!(state.selected_syscalls, expected);
 }
 
@@ -197,10 +296,8 @@ fn selection_allevents() {
             ..Default::default()
         },
     );
-    let expected = names(&[
-        "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "read",
-        "clone", "clone3", "fork", "vfork", "socket", "bind", "close", "procexit",
-    ]);
+    let mut expected = expected_default_state();
+    expected.extend(names(&["ptrace", "mmap", "read"]));
     assert_eq!(state.selected_syscalls, expected);
 }
 
@@ -208,29 +305,16 @@ fn selection_allevents() {
 fn selection_generic_evts() {
     let filters = [SAMPLE_FILTERS, GENERIC_FILTERS].concat();
     let state = configured(&filters, InterestingSetsConfig::default());
-    assert_eq!(
-        state.selected_syscalls,
-        names(&[
-            "connect",
-            "accept",
-            "accept4",
-            "umount2",
-            "open",
-            "ptrace",
-            "mmap",
-            "execve",
-            "syncfs",
-            "fanotify_init",
-            "clone",
-            "clone3",
-            "fork",
-            "vfork",
-            "socket",
-            "bind",
-            "close",
-            "procexit",
-        ])
-    );
+    let mut expected = expected_default_state();
+    expected.extend(names(&[
+        "ptrace",
+        "mmap",
+        "read",
+        "syncfs",
+        "fanotify_init",
+    ]));
+    expected = expected.difference(&expected_ignored()).cloned().collect();
+    assert_eq!(state.selected_syscalls, expected);
 }
 
 #[test]
@@ -270,13 +354,11 @@ fn selection_custom_base_set() {
 
     state.config.as_mut().unwrap().base_syscalls_custom_set = names(&["!accept"]);
     configure_interesting_sets(&mut state).unwrap();
-    assert_eq!(
-        state.selected_syscalls,
-        names(&[
-            "connect", "umount2", "open", "ptrace", "mmap", "execve", "read", "clone", "clone3",
-            "fork", "vfork", "socket", "bind", "close", "procexit",
-        ])
-    );
+    let mut expected = expected_default_state();
+    expected.extend(names(&["ptrace", "mmap", "read"]));
+    expected.remove("accept");
+    expected.remove("accept4");
+    assert_eq!(state.selected_syscalls, expected);
 
     let config = state.config.as_mut().unwrap();
     config.base_syscalls_all = false;
@@ -361,14 +443,18 @@ fn invalid_only_custom_set_uses_empty_positive_repair_path() {
 
 #[test]
 fn ignored_set_expected_size() {
-    let ignored = names(&[
-        "read", "write", "pread", "pwrite", "readv", "writev", "preadv", "pwritev", "recv",
-        "recvfrom", "send", "sendto",
-    ]);
-    let default_state = names(&[
-        "clone", "clone3", "fork", "vfork", "socket", "bind", "close",
-    ]);
+    let ignored = expected_ignored();
+    let default_state = expected_default_state();
     assert_eq!(ignored_syscalls(), ignored);
     assert_eq!(default_state_syscalls(), default_state);
     assert!(ignored.is_disjoint(&default_state));
+}
+
+#[test]
+fn generated_catalog_matches_libsinsp_cardinality() {
+    assert_eq!(all_syscall_names().len(), 452);
+    assert!(generic_event_names().len() > 180);
+    assert!(generic_event_names().contains("perf_event_open"));
+    assert!(generic_event_names().contains("getsid"));
+    assert!(generic_event_names().contains("readlinkat"));
 }

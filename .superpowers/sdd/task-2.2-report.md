@@ -74,3 +74,24 @@ libsinsp twins: the Rust model still has only a fixture-sized PPM event table
 and simplified `sinsp_state_sc_set`, generic-event expansion, architecture
 mapping, and plugin parsing-event behavior. Accordingly `falco_unit_app` is
 restored to 70/81 (86.4%); the 11 modeled tests remain excluded from Pass.
+
+## Libsinsp interesting-set table import
+
+Replaced the fixture table with a checked-in generated catalog sourced from
+falcosecurity/libs tag `0.26.0-rc1`. The generator parses
+`ppm_events_public.h`, `event_table.c`, `scap_ppm_sc.c`, and libsinsp's
+`expected_sinsp_state_sc_set` truth table. The result contains all 452 named
+PPM syscalls, 272 generic syscall names, 192 kernel event names, 166
+event-to-syscall mappings, the 70-entry state set, and category-derived
+network/I/O/file sets.
+
+The 11 Falco twins now exercise full-table generic expansion, exact static
+state-set unions, alias-aware event conversion, the 12-entry high-volume I/O
+difference, and libsinsp repair rules. Their goldens are explicit sets,
+cardinalities, and membership checks rather than production-helper-derived
+expectations. Three additional repair/catalog regressions do not increase the
+Falco inventory count.
+
+Verification: `cargo test -p rustagon-engine -p rustagon-app` passes, including
+all 14 tests in `configure_interesting_sets.rs` and the other 37 app twins.
+`falco_unit_app` is 81/81 (100%).

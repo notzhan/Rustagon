@@ -6,6 +6,7 @@ pub mod cli;
 pub mod interesting_sets;
 pub mod load_config;
 pub mod pidfile;
+mod ppm_events;
 pub mod restart_handler;
 pub mod select_event_sources;
 pub mod syscall_buffer;
