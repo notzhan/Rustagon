@@ -11,14 +11,21 @@
 - Evaluation supports AND/OR/NOT, exists, equality and membership, numeric or
   lexical comparisons, common string operators, glob/pmatch, and the
   `tolower`, `toupper`, and `basename` transformers.
+- Review fix: `!=` now requires at least one successfully extracted left-hand
+  value, preventing missing fields from producing false-positive alerts.
+- Disabled rules are checked before their conditions are parsed and evaluated.
 
 ## TDD and verification
 
 The Inspector-to-engine integration test was added first and observed failing
 at its alert assertion under the old string matcher. A second red cycle added
 macro/list expansion to ensure `process_event` uses the compiled condition.
+The review regression for `proc.name != foo` was observed failing against an
+event without `proc.name`, then passing after requiring a non-empty extracted
+left operand. Focused coverage also exercises NOT, exists, startswith,
+endswith, icontains, and `tolower`.
 
-- `cargo test -p rustagon-engine`: pass (153 tests)
+- `cargo test -p rustagon-engine`: pass (169 tests)
 - `cargo test -p rustagon-sinsp`: pass (15 tests)
 - `cargo clippy -p rustagon-engine -p rustagon-sinsp --all-targets -- -D warnings`: pass
 - `git diff --check`: pass
@@ -33,7 +40,7 @@ green, so Phase 3 acceptance is complete.
 
 This is an incremental evaluator, not complete Falco filter parity. Unknown
 transformers and unresolved identifiers do not match, and richer Falco
-multi-value/path semantics remain future work. Conditions are parsed during
-event dispatch rather than cached as ASTs. A rule initially loaded disabled
-falls back to its source condition when enabled later, so such a rule using
-macros or lists requires future compiled-condition retention.
+multi-value/path semantics remain future work. Enabled-rule conditions are
+parsed during event dispatch rather than cached as ASTs. A rule initially
+loaded disabled falls back to its source condition when enabled later, so such
+a rule using macros or lists requires future compiled-condition retention.

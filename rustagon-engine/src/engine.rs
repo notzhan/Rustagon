@@ -265,6 +265,9 @@ impl FalcoEngine {
             .rule_details
             .iter()
             .find_map(|(name, details)| {
+                if !self.selections.is_enabled(name, ruleset_id) {
+                    return None;
+                }
                 let condition = self
                     .ruleset
                     .rules
@@ -272,7 +275,7 @@ impl FalcoEngine {
                     .map_or(details.condition.as_str(), String::as_str);
                 let matches =
                     parse_filter(condition).is_ok_and(|condition| eval::matches(&condition, evt));
-                if !self.selections.is_enabled(name, ruleset_id) || !matches {
+                if !matches {
                     return None;
                 }
                 Some(Alert {

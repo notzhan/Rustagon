@@ -79,7 +79,9 @@ fn unquote(value: &str) -> String {
 fn compare(op: BinaryOp, actual: &[String], expected: &[String]) -> bool {
     match op {
         BinaryOp::Eq | BinaryOp::In => pairs(actual, expected, |left, right| left == right),
-        BinaryOp::NotEq => !pairs(actual, expected, |left, right| left == right),
+        BinaryOp::NotEq => {
+            !actual.is_empty() && !pairs(actual, expected, |left, right| left == right)
+        }
         BinaryOp::Less => ordering(actual, expected, |order| order == Ordering::Less),
         BinaryOp::LessEq => ordering(actual, expected, |order| order != Ordering::Greater),
         BinaryOp::Greater => ordering(actual, expected, |order| order == Ordering::Greater),

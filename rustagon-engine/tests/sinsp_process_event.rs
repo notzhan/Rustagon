@@ -1,6 +1,7 @@
 use rustagon_engine::FalcoEngine;
 use rustagon_scap::{RawEvent, RawEventKind};
-use rustagon_sinsp::Inspector;
+use rustagon_sinsp::{Evt, Inspector};
+use std::collections::HashMap;
 
 const RULE: &str = r#"
 - list: shells
@@ -65,4 +66,45 @@ fn loaded_rule_matches_only_the_enriched_inspector_event() {
 
     assert_eq!(alert.rule, "enriched open");
     assert_eq!(alert.output, "enriched event matched");
+}
+
+#[test]
+fn inequality_does_not_match_when_left_field_is_missing() {
+    let mut engine = FalcoEngine::new();
+    let result = engine.load_rules(
+        r#"
+- rule: named process
+  condition: proc.name != foo
+  output: process name differs
+  priority: INFO
+"#,
+        "inequality.yaml",
+    );
+    assert!(result.ok, "{:?}", result.errors);
+
+    assert!(engine.process_event(&Evt::default(), 0).is_none());
+}
+
+#[test]
+fn evaluates_not_exists_string_operators_and_transformers() {
+    let mut engine = FalcoEngine::new();
+    let result = engine.load_rules(
+        r#"
+- rule: focused operators
+  condition: >
+    proc.name exists and not proc.name = foo and
+    proc.name startswith Ba and proc.name endswith SH and
+    proc.name icontains ash and tolower(proc.name) = bash
+  output: focused operators matched
+  priority: INFO
+"#,
+        "operators.yaml",
+    );
+    assert!(result.ok, "{:?}", result.errors);
+
+    let matching = Evt::new(HashMap::from([("proc.name".into(), "BaSH".into())]));
+    assert!(engine.process_event(&matching, 0).is_some());
+
+    let missing = Evt::default();
+    assert!(engine.process_event(&missing, 0).is_none());
 }
