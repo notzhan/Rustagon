@@ -5,12 +5,12 @@
 //! - AST (Abstract Syntax Tree) evaluation for rule conditions
 //! - Filter engine for event matching
 
-mod parser;
 mod evaluator;
 pub mod filter;
+mod parser;
 
-pub use parser::{parse_rules, RuleDefinition, FalcoRule};
-pub use evaluator::{RuleEvaluator, EvaluationContext};
+pub use evaluator::{EvaluationContext, RuleEvaluator};
+pub use parser::{parse_rules, parse_rules_from_file, FalcoRule, RuleDefinition};
 
 use thiserror::Error;
 
