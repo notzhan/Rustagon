@@ -39,15 +39,22 @@ impl AtomicSignalHandler {
     }
 
     pub fn handle(&self, callback: impl FnOnce()) -> bool {
-        if self
+        match self
             .state
             .compare_exchange(TRIGGERED, HANDLING, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
         {
-            return false;
+            Ok(_) => {
+                callback();
+                self.state.store(HANDLED, Ordering::Release);
+                true
+            }
+            Err(HANDLING) => {
+                while self.state.load(Ordering::Acquire) == HANDLING {
+                    std::hint::spin_loop();
+                }
+                false
+            }
+            Err(_) => false,
         }
-        callback();
-        self.state.store(HANDLED, Ordering::Release);
-        true
     }
 }

@@ -21,10 +21,9 @@ The implementation uses real atomics and threads, file metadata watching, secure
 
 ## Metrics
 
-`falco_unit_app` advanced from 51/81 to the inventory ceiling of 81/81. This
-batch contains 33 direct twins, while only 30 uncredited slots remained in the
-existing metric. The discrepancy comes from earlier expanded configuration
-ports already being counted against the fixed 81-case Falco-tip inventory.
+`falco_unit_app` is 70/81 (86.4%). The 70 passing cases are the mapped Falco-tip
+inventory cases with Rustagon twins; supporting CLI and regression tests do not
+increase this metric.
 
 ## Remaining
 
@@ -32,3 +31,15 @@ The 11 `test_configure_interesting_sets.cpp` cases remain unported. Faithful
 ports require syscall/event-code tables and state-repair sets equivalent to
 libsinsp; those facilities are not currently exposed by the pure Rust crates.
 No fake event-set stubs were added.
+
+## Phase 2 review fixes
+
+- Corrected `parity/METRICS.md` to 70/81 (86.4%); the 11 unported
+  `configure_interesting_sets` cases remain excluded from the pass count.
+- Added the aya-free `rustagon-app` binary target. `--help` and `--version` are
+  runnable, and `--validate` reads each rules file and validates it through
+  `rustagon-engine`. Listing and daemon startup return explicit unsupported
+  errors without attempting to load eBPF.
+- Added three process-level CLI tests.
+- Changed `AtomicSignalHandler::handle` so concurrent callers wait while the
+  elected callback is active, plus a timing/concurrency regression test.

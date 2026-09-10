@@ -16,7 +16,7 @@ use std::{
     fs,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        mpsc, Arc, Barrier,
     },
     thread,
     time::{Duration, Instant},
@@ -91,6 +91,46 @@ fn atomic_signal_handler_handle_once_wait_consistency() {
         thread.join().unwrap();
     }
     assert_eq!(handled.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn atomic_signal_handler_concurrent_call_waits_for_active_callback() {
+    let handler = Arc::new(AtomicSignalHandler::new());
+    let callback_started = Arc::new(Barrier::new(2));
+    let release_callback = Arc::new(Barrier::new(2));
+    handler.trigger();
+
+    let active = {
+        let handler = Arc::clone(&handler);
+        let callback_started = Arc::clone(&callback_started);
+        let release_callback = Arc::clone(&release_callback);
+        thread::spawn(move || {
+            handler.handle(|| {
+                callback_started.wait();
+                release_callback.wait();
+            })
+        })
+    };
+    callback_started.wait();
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let waiter = {
+        let handler = Arc::clone(&handler);
+        thread::spawn(move || {
+            let result = handler.handle(|| panic!("only the elected callback may run"));
+            done_tx.send(result).unwrap();
+        })
+    };
+
+    thread::sleep(Duration::from_millis(50));
+    assert!(
+        done_rx.try_recv().is_err(),
+        "concurrent handle returned before the active callback completed"
+    );
+    release_callback.wait();
+    assert!(active.join().unwrap());
+    assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    waiter.join().unwrap();
 }
 
 #[test]
