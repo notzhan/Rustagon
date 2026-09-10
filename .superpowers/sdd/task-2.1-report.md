@@ -61,3 +61,20 @@ Falco maps `init_config: null` to an empty string (`""`), not YAML null. Updated
 `deserialize_plugin_init_config` to return `Value::String("")` for null input,
 and adjusted `plugin_init_config_accepts_null_as_empty` to assert empty-string
 semantics matching Falco.
+
+## Batch 3
+
+Ported 15 more cases (45 total): configuration reload and generic field reads;
+escaped dotted, bracketed, and backslash key reads/writes/errors; complete,
+relative-main, invalid-strategy fallback, scalar, empty, directory, and CLI
+config-file loading; rule-selection CLI scalar/object forms; and fuller
+append-output CLI parsing.
+
+The new test target first failed because the YAML helper, retained merged
+document access, validation warnings, and config-file CLI loader were absent.
+After implementation, all 45 `rustagon-config` integration tests pass.
+`falco_unit_app` is now 45/81 (55.6%).
+
+Remaining gaps include schema validation diagnostics, config-file watch/reload
+integration with the application runtime, and any unported environment edge
+cases.

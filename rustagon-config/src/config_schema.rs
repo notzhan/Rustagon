@@ -230,9 +230,8 @@ impl<'de> Deserialize<'de> for MergeStrategy {
             "append" => Ok(Self::Append),
             "override" => Ok(Self::Override),
             "add-only" => Ok(Self::AddOnly),
-            other => Err(serde::de::Error::custom(format!(
-                "unknown config file merge strategy `{other}`"
-            ))),
+            // Falco reports schema validation failure but continues with append.
+            _ => Ok(Self::Append),
         }
     }
 }
