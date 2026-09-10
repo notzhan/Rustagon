@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+pub mod modern_ebpf;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum RawEventKind {
     #[default]
