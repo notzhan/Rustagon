@@ -29,7 +29,7 @@ impl Output for SyslogOutput {
         let socket = tokio::net::UnixDatagram::unbound()?;
         let message = format!(
             "<{}>{}",
-            severity_number(&alert.priority),
+            syslog_pri(&alert.priority),
             alert.format(&self.format)?
         );
         socket
@@ -37,6 +37,12 @@ impl Output for SyslogOutput {
             .await?;
         Ok(())
     }
+}
+
+const LOG_USER: u8 = 1;
+
+fn syslog_pri(priority: &str) -> u8 {
+    LOG_USER << 3 | severity_number(priority)
 }
 
 fn severity_number(priority: &str) -> u8 {
@@ -49,5 +55,17 @@ fn severity_number(priority: &str) -> u8 {
         "notice" => 5,
         "informational" | "info" => 6,
         _ => 7,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn syslog_pri_uses_log_user_facility() {
+        assert_eq!(syslog_pri("warning"), 12);
+        assert_eq!(syslog_pri("error"), 11);
+        assert_eq!(syslog_pri("info"), 14);
     }
 }

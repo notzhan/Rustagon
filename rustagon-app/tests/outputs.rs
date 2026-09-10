@@ -189,13 +189,36 @@ async fn http_posts_the_formatted_alert() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
-        let mut request = vec![0; 4096];
-        let count = stream.read(&mut request).await.unwrap();
+        let mut request = Vec::new();
+        let mut buf = [0u8; 1024];
+        loop {
+            let count = stream.read(&mut buf).await.unwrap();
+            if count == 0 {
+                break;
+            }
+            request.extend_from_slice(&buf[..count]);
+            if let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                let header_end = header_end + 4;
+                let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if request.len() >= header_end + content_length {
+                    break;
+                }
+            }
+        }
         stream
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
             .await
             .unwrap();
-        String::from_utf8(request[..count].to_vec()).unwrap()
+        String::from_utf8(request).unwrap()
     });
     let config = HttpConfig {
         enabled: true,
@@ -228,7 +251,7 @@ async fn syslog_sends_the_formatted_alert_to_a_unix_socket() {
 
     assert_eq!(
         String::from_utf8(message[..count].to_vec()).unwrap(),
-        "<4>2026-09-10T01:02:03.000000004Z: Warning A shell was spawned"
+        "<12>2026-09-10T01:02:03.000000004Z: Warning A shell was spawned"
     );
 }
 
