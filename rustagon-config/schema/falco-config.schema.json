@@ -75,10 +75,17 @@
                     "$ref": "#/definitions/Capture"
                 },
                 "load_plugins": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
+                    "oneOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ]
                 },
                 "plugins": {
                     "type": "array",

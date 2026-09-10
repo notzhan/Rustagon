@@ -141,6 +141,40 @@ fn config_load_rejects_enabled_plugins_with_explicit_error() {
 }
 
 #[test]
+fn config_load_rejects_boolean_plugin_enablement_with_explicit_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("falco.yaml");
+    fs::write(
+        &path,
+        "load_plugins: true\nplugins:\n  - name: json\n    library_path: libjson.so\n",
+    )
+    .unwrap();
+
+    let error = load_config(&path, &[]).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Falco plugins are enabled (json), but pure-Rust plugin support is not implemented"
+    );
+}
+
+#[test]
+fn config_load_rejects_plugins_when_load_plugins_is_omitted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("falco.yaml");
+    fs::write(
+        &path,
+        "plugins:\n  - name: json\n    library_path: libjson.so\n",
+    )
+    .unwrap();
+
+    let error = load_config(&path, &[]).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Falco plugins are enabled (json), but pure-Rust plugin support is not implemented"
+    );
+}
+
+#[test]
 fn config_load_allows_declared_but_disabled_plugins() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("falco.yaml");

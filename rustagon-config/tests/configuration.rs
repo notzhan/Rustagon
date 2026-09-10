@@ -25,7 +25,7 @@ watch_config_files: false
     assert_eq!(config.rules_files, ["/etc/falco/falco_rules.yaml"]);
     assert_eq!(config.priority, "warning");
     assert!(config.json_output);
-    assert_eq!(config.load_plugins, ["k8saudit", "json"]);
+    assert_eq!(config.load_plugins.names(), ["k8saudit", "json"]);
     assert!(!config.watch_config_files);
 }
 

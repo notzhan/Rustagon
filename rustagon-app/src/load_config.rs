@@ -1,4 +1,6 @@
-use rustagon_config::{ConfigError, DriverConfig, FalcoConfig, ModernEbpfConfig, ReplayConfig};
+use rustagon_config::{
+    ConfigError, DriverConfig, FalcoConfig, LoadPlugins, ModernEbpfConfig, ReplayConfig,
+};
 use std::path::Path;
 use thiserror::Error;
 
@@ -37,10 +39,28 @@ pub fn load_config(
 }
 
 pub fn validate_plugin_support(config: &FalcoConfig) -> Result<(), LoadConfigError> {
-    if config.load_plugins.is_empty() {
-        return Ok(());
+    let plugins = match &config.load_plugins {
+        LoadPlugins::Enabled(false) => return Ok(()),
+        LoadPlugins::Names(names) if names.is_empty() => return Ok(()),
+        LoadPlugins::Names(names) => names.join(", "),
+        LoadPlugins::Enabled(true) => configured_plugin_names(config),
+        LoadPlugins::Omitted if config.plugins.is_empty() => return Ok(()),
+        LoadPlugins::Omitted => configured_plugin_names(config),
+    };
+
+    Err(LoadConfigError::PluginsNotImplemented { plugins })
+}
+
+fn configured_plugin_names(config: &FalcoConfig) -> String {
+    let names = config
+        .plugins
+        .iter()
+        .map(|plugin| plugin.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if names.is_empty() {
+        "all configured plugins".to_string()
+    } else {
+        names
     }
-    Err(LoadConfigError::PluginsNotImplemented {
-        plugins: config.load_plugins.join(", "),
-    })
 }

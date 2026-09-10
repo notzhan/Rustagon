@@ -6,7 +6,8 @@ Implemented:
 - Embedded async webserver honoring enablement, bind address/port, health path,
   Prometheus endpoint enablement, threadiness, and combined-PEM TLS.
 - Falco-tip application metrics snapshot with Prometheus field names and content type.
-- Explicit app config-load failure when `load_plugins` enables pure-Rust plugins.
+- Explicit app config-load failure when `load_plugins` enables plugins, including
+  boolean `true`, or when plugin definitions are present and `load_plugins` is omitted.
 - Bounded, timed webserver connections that are terminated during shutdown.
 
 Files created:
@@ -21,8 +22,10 @@ Files changed:
 
 TDD:
 - The focused suite first failed because the requested modules did not exist.
-- Seven focused tests now cover endpoints, disabled startup, SSL configuration
-  errors, shutdown, Falco metric names, and plugin gate behavior.
+- Nine focused tests now cover endpoints, disabled startup, SSL configuration
+  errors, shutdown, Falco metric names, and all plugin gate activation forms.
+- Review regressions first reproduced the generic serde error for
+  `load_plugins: true` and silent acceptance of definitions with an omitted key.
 
 Verification:
 - `cargo test -p rustagon-app`: passed
@@ -35,8 +38,10 @@ Self-review:
 - No Critical issues remain.
 - Review identified unbounded connection tasks; fixed with the configured worker
   bound, timeout, tracked tasks, and a shutdown regression test.
-- Plugin definitions remain permitted when `load_plugins` is explicitly empty,
-  matching the documented Falco-tip default configuration.
+- Falco tip documents `load_plugins` as a name list with explicit `[]` disabling
+  configured definitions. The schema now additionally accepts the brief's boolean
+  form and preserves omitted versus explicit-empty state; explicit `[]` remains
+  disabled while omission with definitions triggers the conservative plugin gate.
 
 Concern:
 - Metrics currently cover application-owned wrapper fields only; inspector,

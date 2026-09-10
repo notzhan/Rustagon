@@ -3,7 +3,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_yaml::{Mapping, Value};
 use thiserror::Error;
 
@@ -101,7 +101,8 @@ pub struct FalcoConfig {
     pub rules_files: Vec<String>,
     pub rules: Vec<RuleSelection>,
     pub engine: EngineConfig,
-    pub load_plugins: Vec<String>,
+    #[serde(skip_serializing_if = "LoadPlugins::is_omitted")]
+    pub load_plugins: LoadPlugins,
     pub plugins: Vec<PluginConfig>,
     pub plugins_hostinfo: bool,
     pub falco_libs: FalcoLibsConfig,
@@ -134,6 +135,59 @@ pub struct FalcoConfig {
     document: Value,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum LoadPlugins {
+    #[default]
+    Omitted,
+    Enabled(bool),
+    Names(Vec<String>),
+}
+
+impl LoadPlugins {
+    pub fn is_omitted(&self) -> bool {
+        matches!(self, Self::Omitted)
+    }
+
+    pub fn names(&self) -> &[String] {
+        match self {
+            Self::Names(names) => names,
+            Self::Omitted | Self::Enabled(_) => &[],
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LoadPlugins {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum BooleanOrNames {
+            Enabled(bool),
+            Names(Vec<String>),
+        }
+
+        Ok(match BooleanOrNames::deserialize(deserializer)? {
+            BooleanOrNames::Enabled(enabled) => Self::Enabled(enabled),
+            BooleanOrNames::Names(names) => Self::Names(names),
+        })
+    }
+}
+
+impl Serialize for LoadPlugins {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Omitted => serializer.serialize_none(),
+            Self::Enabled(enabled) => serializer.serialize_bool(*enabled),
+            Self::Names(names) => names.serialize(serializer),
+        }
+    }
 }
 
 impl FalcoConfig {
