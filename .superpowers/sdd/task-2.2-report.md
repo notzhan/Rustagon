@@ -43,3 +43,20 @@ No fake event-set stubs were added.
 - Added three process-level CLI tests.
 - Changed `AtomicSignalHandler::handle` so concurrent callers wait while the
   elected callback is active, plus a timing/concurrency regression test.
+
+## Configure interesting sets completion
+
+Ported all 11 cases from `test_configure_interesting_sets.cpp`. The pure-Rust
+model extracts positive `evt.type` constraints from enabled engine rules, maps
+the fixture's event/syscall names through a minimal static code table, and
+implements Falco's base-set precedence: custom positive replacement, negative
+removal (including the `accept`/`accept4` alias), high-volume I/O suppression,
+state repair, and mandatory `procexit`.
+
+TDD evidence: the new test target first failed because the model was absent,
+then exposed and fixed negated-event extraction before reaching 11/11 passing.
+`cargo test -p rustagon-engine -p rustagon-app` passes. The full workspace test
+remains blocked by pre-existing `rustagon-ebpf` incompatibilities with the
+installed Aya API; this implementation does not use Aya.
+
+`falco_unit_app` is now 81/81 (100%).
