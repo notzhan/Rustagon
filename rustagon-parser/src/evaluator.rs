@@ -2,8 +2,8 @@
 //!
 //! Evaluates rule conditions against events using a simple filter language
 
-use rustagon_common::EventHeader;
 use crate::ParseError;
+use rustagon_common::EventHeader;
 use rustagon_common::EventType;
 
 /// Context for evaluating a rule condition

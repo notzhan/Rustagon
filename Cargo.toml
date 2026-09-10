@@ -33,4 +33,4 @@ opt-level = 0
 
 # xtask build script workspace-level config
 [workspace.metadata.xtask]
-ebpf_target = "bpfel64-unknown-none"
+ebpf_target = "bpfel-unknown-none"

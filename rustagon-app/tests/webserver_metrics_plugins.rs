@@ -4,6 +4,7 @@ use rustagon_app::{
     webserver::Webserver,
 };
 use rustagon_config::WebserverConfig;
+use rustagon_scap::{DropCounters, DropReason};
 use serde_json::json;
 use std::{fs, sync::Arc};
 use tokio::{
@@ -29,6 +30,7 @@ async fn webserver_serves_health_versions_and_prometheus_metrics() {
         falco_version: "0.41.0".to_string(),
         outputs_queue_num_drops: 2,
         reload_timestamp_nanoseconds: 123,
+        scap: None,
     });
     let server = Webserver::start(
         &webserver_config(),
@@ -115,12 +117,35 @@ fn prometheus_snapshot_uses_falco_tip_field_names() {
         falco_version: r#"0.41.0"dev"#.to_string(),
         outputs_queue_num_drops: 7,
         reload_timestamp_nanoseconds: 1_748_338_536_592_811_359,
+        scap: None,
     }
     .to_prometheus();
 
     assert!(text.contains(r#"falcosecurity_falco_version_info{version="0.41.0\"dev"} 1"#));
     assert!(text.contains("falcosecurity_falco_outputs_queue_num_drops_total 7"));
     assert!(text.contains("falcosecurity_falco_reload_timestamp_nanoseconds 1748338536592811359"));
+}
+
+#[test]
+fn prometheus_snapshot_includes_syscall_drop_counters() {
+    let counters = DropCounters::default();
+    counters.record(DropReason::BufferFull);
+    counters.record(DropReason::ParseFailure);
+    counters.record(DropReason::Filtered);
+
+    let text = MetricsSnapshot {
+        falco_version: "0.41.0".to_string(),
+        outputs_queue_num_drops: 0,
+        reload_timestamp_nanoseconds: 0,
+        scap: None,
+    }
+    .with_scap_metrics(counters.snapshot())
+    .to_prometheus();
+
+    assert!(text.contains("falcosecurity_scap_n_drops_total 3"));
+    assert!(text.contains("falcosecurity_scap_n_drops_buffer_total 1"));
+    assert!(text.contains("falcosecurity_scap_n_drops_bug_total 1"));
+    assert!(text.contains("falcosecurity_scap_n_drops_filtered_total 1"));
 }
 
 #[test]

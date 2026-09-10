@@ -4,9 +4,9 @@
 //! Evaluates rules asynchronously without blocking
 
 use anyhow::Result;
+use rustagon_parser::{RuleDefinition, RuleEvaluator};
 use tokio::sync::mpsc;
-use tracing::{info, warn};
-use rustagon_parser::{parse_rules, RuleEvaluator, RuleDefinition};
+use tracing::info;
 
 use crate::ringbuf::RingBufEvent;
 
@@ -17,15 +17,18 @@ impl EventRunner {
     /// Run the event processor
     pub async fn run(
         mut rx: mpsc::Receiver<RingBufEvent>,
-        _rule_def: &RuleDefinition,
+        rule_def: &RuleDefinition,
     ) -> Result<()> {
         info!("Event runner started");
 
-        // Compile rules
-        let _evaluators: Vec<RuleEvaluator> = vec![];
+        let _evaluators: Result<Vec<RuleEvaluator>, _> = rule_def
+            .rules
+            .iter()
+            .map(|rule| RuleEvaluator::new(rule.condition.clone()))
+            .collect();
 
-        // Process events from channel
-        while let Some(_event) = rx.recv().await {
+        while let Some(event) = rx.recv().await {
+            let _ = event.len();
             // In a real implementation:
             // 1. Deserialize event from raw bytes
             // 2. Evaluate each rule against the event

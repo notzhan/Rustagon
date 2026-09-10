@@ -9,7 +9,7 @@
 use anyhow::Result;
 use rustagon_parser::parse_rules_from_file;
 use tokio::sync::mpsc;
-use tracing::{info, error};
+use tracing::{error, info};
 
 use crate::ringbuf::RingBufConsumer;
 use crate::runner::EventRunner;
@@ -18,15 +18,12 @@ use crate::runner::EventRunner;
 pub async fn run(rules_file: String, num_workers: usize, _ringbuf_size: usize) -> Result<()> {
     info!("Loading rules from: {}", rules_file);
 
-    // Parse rules
     let rule_def = parse_rules_from_file(&rules_file)?;
     info!("Loaded {} rules", rule_def.rules.len());
 
-    // Create event channel (lock-free, multiple producers)
-    let (tx, rx) = mpsc::channel(10000);
+    let workers = num_workers.max(1);
+    let (tx, mut rx) = mpsc::channel(10000);
 
-    // Spawn ringbuffer consumer task
-    // This task would load the eBPF program and read events
     let ringbuf_task = {
         let tx = tx.clone();
         tokio::spawn(async move {
@@ -35,27 +32,46 @@ pub async fn run(rules_file: String, num_workers: usize, _ringbuf_size: usize) -
             }
         })
     };
+    drop(tx);
 
-    // Spawn event processing workers
-    let mut worker_tasks = vec![];
-    for i in 0..num_workers {
+    let mut worker_txs = Vec::with_capacity(workers);
+    let mut worker_tasks = Vec::with_capacity(workers);
+    for i in 0..workers {
+        let (worker_tx, worker_rx) = mpsc::channel(10000);
+        worker_txs.push(worker_tx);
+
         let rule_def = rule_def.clone();
-        let rx = rx.clone();
-
-        let worker_task = tokio::spawn(async move {
+        worker_tasks.push(tokio::spawn(async move {
             info!("Event worker {} started", i);
-            if let Err(e) = EventRunner::run(rx, &rule_def).await {
+            if let Err(e) = EventRunner::run(worker_rx, &rule_def).await {
                 error!("Worker {} error: {}", i, e);
             }
-        });
-
-        worker_tasks.push(worker_task);
+        }));
     }
 
-    // Wait for first task to complete (ringbuffer)
-    ringbuf_task.await?;
+    let dispatch_task = tokio::spawn(async move {
+        let mut next = 0usize;
+        while let Some(event) = rx.recv().await {
+            if worker_txs.is_empty() {
+                break;
+            }
+            let target = next % worker_txs.len();
+            next = next.wrapping_add(1);
+            if worker_txs[target].send(event).await.is_err() {
+                break;
+            }
+        }
+    });
 
-    // Shutdown all worker tasks
+    tokio::select! {
+        result = ringbuf_task => {
+            result?;
+        }
+        result = dispatch_task => {
+            result?;
+        }
+    }
+
     for task in worker_tasks {
         task.abort();
     }

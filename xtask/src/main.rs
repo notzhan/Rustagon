@@ -8,6 +8,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::Command;
 
+const EBPF_TARGET: &str = "bpfel-unknown-none";
+
 #[derive(Parser)]
 struct Opts {
     #[command(subcommand)]
@@ -50,7 +52,8 @@ fn build_ebpf(release: bool) -> Result<()> {
     cmd.current_dir(&ebpf_dir);
     cmd.arg("build");
     cmd.arg("--target");
-    cmd.arg("bpfel64-unknown-none");
+    cmd.arg(EBPF_TARGET);
+    cmd.args(["-Z", "build-std=core"]);
 
     if release {
         cmd.arg("--release");
@@ -77,7 +80,8 @@ fn check_ebpf() -> Result<()> {
     cmd.current_dir(&ebpf_dir);
     cmd.arg("check");
     cmd.arg("--target");
-    cmd.arg("bpfel64-unknown-none");
+    cmd.arg(EBPF_TARGET);
+    cmd.args(["-Z", "build-std=core"]);
 
     println!("Running: {:?}", cmd);
     let status = cmd.status()?;

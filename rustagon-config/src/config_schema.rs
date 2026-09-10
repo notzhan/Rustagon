@@ -3,6 +3,36 @@ use serde_yaml::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct BaseSyscallsConfig {
+    pub custom_set: Vec<String>,
+    pub repair: bool,
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyscallEventDropsConfig {
+    pub threshold: f64,
+    pub actions: Vec<String>,
+    pub rate: f64,
+    pub max_burst: u32,
+    pub simulate_drops: bool,
+}
+
+impl Default for SyscallEventDropsConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.1,
+            actions: Vec::new(),
+            rate: 0.03333,
+            max_burst: 1,
+            simulate_drops: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FalcoLibsConfig {
     pub thread_table_size: u64,
     pub thread_table_auto_purging_interval_s: u64,

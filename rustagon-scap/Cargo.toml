@@ -7,4 +7,8 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow = "1"
 async-trait = "0.1"
+aya = "0.13"
+rustagon-common = { path = "../rustagon-common" }
+tokio = { version = "1", features = ["macros", "net", "rt", "time"] }

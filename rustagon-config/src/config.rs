@@ -8,9 +8,9 @@ use serde_yaml::{Mapping, Value};
 use thiserror::Error;
 
 use crate::config_schema::{
-    deserialize_config_files, AppendOutput, ConfigFile, EngineConfig, FalcoLibsConfig, FileOutput,
-    HttpOutput, MergeStrategy, PluginConfig, ProgramOutput, RuleSelection, ToggleOutput,
-    WebserverConfig,
+    deserialize_config_files, AppendOutput, BaseSyscallsConfig, ConfigFile, EngineConfig,
+    FalcoLibsConfig, FileOutput, HttpOutput, MergeStrategy, PluginConfig, ProgramOutput,
+    RuleSelection, SyscallEventDropsConfig, ToggleOutput, WebserverConfig,
 };
 
 pub const FALCO_CONFIG_SCHEMA: &str = include_str!("../schema/falco-config.schema.json");
@@ -101,6 +101,8 @@ pub struct FalcoConfig {
     pub rules_files: Vec<String>,
     pub rules: Vec<RuleSelection>,
     pub engine: EngineConfig,
+    pub syscall_event_drops: SyscallEventDropsConfig,
+    pub base_syscalls: BaseSyscallsConfig,
     #[serde(skip_serializing_if = "LoadPlugins::is_omitted")]
     pub load_plugins: LoadPlugins,
     pub plugins: Vec<PluginConfig>,
