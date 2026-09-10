@@ -78,3 +78,25 @@ After implementation, all 45 `rustagon-config` integration tests pass.
 Remaining gaps include schema validation diagnostics, config-file watch/reload
 integration with the application runtime, and any unported environment edge
 cases.
+
+## Batch 4
+
+Ported all 6 remaining `test_configuration_schema.cpp` cases:
+`schema_validate_config`, `schema_ok`, `schema_wrong_key`, `schema_wrong_type`,
+`schema_wrong_embedded_key`, and `schema_yaml_helper_validator`.
+
+The crate now embeds Falco's draft-06 configuration schema from upstream tip
+`c42269e0975caf66134644cb83c66c82dc76afe2`, validates loaded YAML while
+preserving Falco's warning semantics, exposes explicit none/ok/failed statuses,
+and strongly parses `falco_libs` so an invalid scalar node remains a load error.
+Format assertions are disabled to match Falco's acceptance of the empty default
+HTTP URL in `falco.yaml`.
+
+The new target first failed on the absent schema API, then exposed the format
+compatibility difference before all 6 cases passed. All 51 `rustagon-config`
+integration tests pass. `falco_unit_app` is now 51/81 (63.0%).
+
+Configuration parity is now largely exhausted; the main remaining config work
+is app-runtime watch/reload/capture behavior. The remaining app inventory is
+approximately 30 cases, most requiring Task 2.2 CLI/runtime or pure signal and
+restart-handler seams.

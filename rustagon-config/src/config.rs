@@ -8,9 +8,19 @@ use serde_yaml::{Mapping, Value};
 use thiserror::Error;
 
 use crate::config_schema::{
-    deserialize_config_files, AppendOutput, ConfigFile, EngineConfig, FileOutput, HttpOutput,
-    MergeStrategy, PluginConfig, ProgramOutput, RuleSelection, ToggleOutput, WebserverConfig,
+    deserialize_config_files, AppendOutput, ConfigFile, EngineConfig, FalcoLibsConfig, FileOutput,
+    HttpOutput, MergeStrategy, PluginConfig, ProgramOutput, RuleSelection, ToggleOutput,
+    WebserverConfig,
 };
+
+pub const FALCO_CONFIG_SCHEMA: &str = include_str!("../schema/falco-config.schema.json");
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationStatus {
+    None,
+    Ok,
+    Failed(Vec<String>),
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -33,6 +43,8 @@ pub enum ConfigError {
     EmptyOverrideKey,
     #[error("invalid configuration key `{key}`: {reason}")]
     InvalidKey { key: String, reason: String },
+    #[error("invalid configuration schema: {0}")]
+    Schema(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,6 +86,10 @@ impl YamlConfig {
     pub fn set(&mut self, key: &str, value: Value) -> Result<(), ConfigError> {
         set_key(&mut self.document, key, value)
     }
+
+    pub fn validate(&self, schema: Option<&str>) -> Result<ValidationStatus, ConfigError> {
+        validate_document(&self.document, schema)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -88,6 +104,7 @@ pub struct FalcoConfig {
     pub load_plugins: Vec<String>,
     pub plugins: Vec<PluginConfig>,
     pub plugins_hostinfo: bool,
+    pub falco_libs: FalcoLibsConfig,
     pub time_format_iso_8601: bool,
     pub buffer_format_base64: bool,
     pub priority: String,
@@ -203,8 +220,19 @@ impl FalcoConfig {
         get_key(&self.document, key)
     }
 
+    pub fn validation_status(&self) -> ValidationStatus {
+        if self.validation_warnings.is_empty() {
+            ValidationStatus::Ok
+        } else {
+            ValidationStatus::Failed(self.validation_warnings.clone())
+        }
+    }
+
     fn from_value(value: Value) -> Result<Self, ConfigError> {
-        let validation_warnings = find_validation_warnings(&value);
+        let validation_warnings = match validate_document(&value, Some(FALCO_CONFIG_SCHEMA))? {
+            ValidationStatus::Failed(warnings) => warnings,
+            ValidationStatus::None | ValidationStatus::Ok => Vec::new(),
+        };
         let document = value.clone();
         let mut config: Self = serde_yaml::from_value(value)?;
         config.document = document;
@@ -224,6 +252,41 @@ impl FalcoConfig {
             }
         }
         Ok(config)
+    }
+}
+
+fn validate_document(
+    document: &Value,
+    schema: Option<&str>,
+) -> Result<ValidationStatus, ConfigError> {
+    let Some(schema) = schema else {
+        return Ok(ValidationStatus::None);
+    };
+    if schema.trim().is_empty() {
+        return Ok(ValidationStatus::None);
+    }
+
+    let schema: serde_json::Value =
+        serde_json::from_str(schema).map_err(|error| ConfigError::Schema(error.to_string()))?;
+    let mut options = jsonschema::JSONSchema::options();
+    options
+        .with_draft(jsonschema::Draft::Draft6)
+        .should_validate_formats(false);
+    let validator = options
+        .compile(&schema)
+        .map_err(|error| ConfigError::Schema(error.to_string()))?;
+    let instance =
+        serde_json::to_value(document).map_err(|error| ConfigError::Schema(error.to_string()))?;
+    let warnings = validator
+        .validate(&instance)
+        .err()
+        .map(|errors| errors.map(|error| error.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    if warnings.is_empty() {
+        Ok(ValidationStatus::Ok)
+    } else {
+        Ok(ValidationStatus::Failed(warnings))
     }
 }
 
@@ -372,29 +435,6 @@ fn normalized_path(path: &Path) -> PathBuf {
 
 fn parse_override_value(value: &str) -> Value {
     serde_yaml::from_str::<Value>(value).unwrap_or_else(|_| Value::String(value.into()))
-}
-
-fn find_validation_warnings(document: &Value) -> Vec<String> {
-    let mut warnings = Vec::new();
-    if let Some(Value::Sequence(files)) = document
-        .as_mapping()
-        .and_then(|map| map.get(Value::String("config_files".into())))
-    {
-        for file in files {
-            let strategy = file
-                .as_mapping()
-                .and_then(|map| map.get(Value::String("strategy".into())))
-                .and_then(Value::as_str);
-            if let Some(strategy) = strategy {
-                if !matches!(strategy, "append" | "override" | "add-only") {
-                    warnings.push(format!(
-                        "unknown config file merge strategy `{strategy}`; using append"
-                    ));
-                }
-            }
-        }
-    }
-    warnings
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

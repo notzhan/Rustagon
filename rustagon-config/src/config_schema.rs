@@ -3,6 +3,15 @@ use serde_yaml::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct FalcoLibsConfig {
+    pub thread_table_size: u64,
+    pub thread_table_auto_purging_interval_s: u64,
+    pub thread_table_auto_purging_thread_timeout_s: u64,
+    pub snaplen: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct EngineConfig {
     pub kind: String,
     pub kmod: DriverConfig,
