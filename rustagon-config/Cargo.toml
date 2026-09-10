@@ -1,0 +1,15 @@
+[package]
+name = "rustagon-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3"

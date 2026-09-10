@@ -3,7 +3,11 @@ members = [
     "rustagon-common",
     "rustagon-ebpf",
     "rustagon-parser",
+    "rustagon-engine",
     "rustagon-core",
+    "rustagon-config",
+    "rustagon-scap",
+    "rustagon-sinsp",
     "xtask",
 ]
 resolver = "2"

@@ -3,7 +3,6 @@
 //! Parses Falco YAML rule definitions and converts them to AST
 
 use serde::{Deserialize, Serialize};
-use crate::ParseError;
 
 /// Represents a complete Falco rule
 #[derive(Debug, Clone, Serialize, Deserialize)]

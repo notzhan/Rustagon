@@ -1,0 +1,372 @@
+# Task 1.4 report — batch 1
+
+## Ported and passing
+
+- `rule_override_append`
+- `rule_append`
+- `rule_override_replace`
+- `rule_override_append_replace`
+- `rule_incorrect_override_type`
+- `rule_incorrect_append_override`
+- `macro_override_append_before_macro_definition`
+- `macro_append_before_macro_definition`
+
+The tests mirror Falco's YAML, success/failure expectations, compiled or raw rule
+conditions, rule metadata, deprecation warnings, schema status, and required
+error substrings.
+
+## Engine changes
+
+- Added per-rule description, raw condition, output, and normalized priority metadata.
+- Added field-level rule append/replace handling and deprecated `append: true` support.
+- Preserved warnings on semantic load failures and distinguished schema-valid semantic
+  errors from YAML parse errors.
+
+## Verification
+
+- `cargo test -p rustagon-engine`: 18 passed, 0 failed.
+- Approximately 94 of the 104 `test_rule_loader.cpp` cases remain for later batches
+  (counting the two previously ported cases, `list_append` and `condition_append`).
+
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 10, Total 152, 6.6%.
+
+## Batch 2
+
+### Ported and passing
+
+- `macro_override_replace_before_macro_definition`
+- `macro_override_append_after_macro_definition`
+- `macro_append_after_macro_definition`
+- `rule_override_append_before_rule_definition`
+- `rule_override_replace_before_rule_definition`
+- `rule_append_before_rule_definition`
+- `rule_override_append_after_rule_definition`
+- `rule_append_after_rule_definition`
+- `list_override_append_wrong_key`
+- `list_override_append_before_list_definition`
+
+### Engine changes
+
+- Reject list appends when no prior list definition exists.
+- Distinguish missing-rule append and replace diagnostics.
+- Preserve successful loads while reporting schema failure for unknown YAML keys.
+- Normalize comma spacing in compiled conditions.
+
+### Verification
+
+- `cargo test -p rustagon-engine`: 28 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 20, Total 152, 13.2%.
+
+## Batch 3
+
+### Ported and passing
+
+- `list_override_replace_before_list_definition`
+- `list_append_before_list_definition`
+- `list_override_append_after_list_definition`
+- `list_append_after_list_definition`
+- `rule_override_without_field`
+- `rule_override_extra_field`
+- `missing_enabled_key_with_override`
+- `rule_override_with_enabled`
+- `rule_not_enabled`
+- `empty_append_rule_is_rejected`
+
+### Engine changes
+
+- Added rule enabled-state loading and field-level enabled replacement.
+- Excluded disabled rules from the compiled ruleset.
+- Added Falco-compatible diagnostics for absent override values, unexpected
+  override fields, and empty legacy rule appends.
+
+### Verification
+
+- `cargo test -p rustagon-engine`: 38 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 30, Total 152, 19.7%.
+
+## Batch 4
+
+### Ported and passing
+
+- `rule_override_exceptions_required_fields`
+- `rule_enabled_warning`
+- `rewrite_rule`
+- `rule_enabled_is_ignored_by_append`
+
+### Engine changes
+
+- Validate that replacement and initial exception definitions include `fields`,
+  while retaining Falco's allowance for partial append definitions.
+- Support the deprecated standalone `enabled` update and emit Falco's warning.
+
+### Blocked
+
+- The six requested evt.type warning cases require semantic condition analysis:
+  determining the set of matching event types, recognizing statically
+  unsatisfiable expressions, contradictions, and unsatisfiable expanded macros.
+  The current engine only normalizes condition strings, so fixture-specific
+  string matching would fake parity rather than implement the subsystem.
+
+### Verification
+
+- TDD red run: 2 passed, 2 failed for the two missing behaviors.
+- `cargo test -p rustagon-engine`: 42 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 44
+  (`20 + 10 + 10 + 4`), Total 152, 28.9%.
+
+## Metrics correction (post batch 4)
+
+- Corrected `parity/METRICS.md`: `falco_unit_engine` Pass 34 (`30 + 4`), Total 152, 22.4%.
+- Prior entry overstated pass count (44 / 28.9%); batch 4 adds 4 cases to batch 3's 30.
+
+## Batch 5
+
+### Ported and passing
+
+- `required_engine_version_semver`
+- `required_engine_version_not_semver`
+- `required_engine_version_invalid`
+- `list_value_with_escaping`
+- `macro_name_invalid`
+- `list_name_invalid`
+- `exceptions_condition`
+- `exceptions_append_no_values`
+- `exceptions_override_no_values`
+- `exceptions_names_not_unique`
+
+### Engine changes
+
+- Validate semantic and legacy numeric required-engine versions against Falco tip's
+  engine version `0.65.0`, with Falco-compatible invalid-version diagnostics.
+- Preserve quoting for whitespace-containing list values during condition compilation,
+  and warn for invalid macro/list names and unused lists.
+- Compile the requested single-field exception condition and support warnings for
+  value-less exception appends and duplicate exception names.
+- Validate exception mapping keys so typoed `value` entries produce failed schema
+  validation while the load remains successful, matching Falco.
+
+### Verification
+
+- TDD red run: 10 failed for the ten missing behaviors; escaped-list compilation
+  received an additional focused red/green cycle.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 52 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 44 (`34 + 10`),
+  Total 152, 28.9%.
+
+### Concern
+
+- Exception condition compilation currently covers the tuple/list shape exercised by
+  `exceptions_condition`; broader Falco exception operators and value shapes remain
+  outside this batch.
+
+## Batch 6
+
+### Ported and passing
+
+- `exceptions_values_rhs_field_ambiguous`
+- `exceptions_values_rhs_field_ambiguous_quoted`
+- `exceptions_values_rhs_field_ambiguous_space_quoted`
+- `exceptions_values_rhs_transformer`
+- `exceptions_values_transformer_value_quoted`
+- `exceptions_values_transformer_space`
+- `exceptions_values_transformer_space_quoted`
+- `exceptions_fields_transformer`
+- `exceptions_fields_transformer_quoted`
+- `exceptions_fields_transformer_space_quoted`
+
+### Engine changes
+
+- Match Falco's exception-condition parenthesization for simple conditions while
+  retaining grouping for disjunctions.
+- Warn when exception RHS constants resemble field names or malformed field
+  transformers, including quoted YAML scalars.
+- Normalize whitespace after the opening parenthesis in exception field transformers.
+
+### Verification
+
+- TDD red run: all 10 new tests failed on Falco-incompatible condition rendering.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 62 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 54 (`44 + 10`),
+  Total 152, 35.5%.
+
+### Concern
+
+- Ambiguity warnings use syntax-shape recognition rather than plugin field metadata;
+  this covers the ported cases but may differ for plugin-defined fields.
+
+## Batch 7
+
+### Ported and passing
+
+- `redefine_rule_different_source`
+- `append_across_sources`
+- `selective_replace_across_sources`
+- `empty_source_addl_rule`
+- `empty_string_source_addl_rule`
+- `rule_with_warn_evttypes`
+- `rule_with_skip_if_unknown_filter`
+- `override_replace_warn_evttypes`
+- `override_replace_capture`
+- `override_replace_tags`
+
+### Engine changes
+
+- Track each rule's source, defaulting omitted sources to `syscall`.
+- Reject full redefinitions, appends, and selective replacements that explicitly
+  change a rule's source.
+- Treat null and empty additional-rule sources as inherited, matching Falco.
+
+### Verification
+
+- TDD red run: 7 passed and the 3 cross-source rejection cases failed for the
+  expected missing source validation.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 72 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 64 (`54 + 10`),
+  Total 152, 42.1%.
+
+### Concern
+
+- `warn_evttypes`, `skip-if-unknown-filter`, `capture`, and `tags` satisfy the
+  ported Falco tests' load/schema assertions, but Rustagon does not yet expose
+  or consume their stored runtime values.
+
+## Batch 8
+
+### Ported and passing
+
+- `rule_unknown_key`
+- `list_unknown_key`
+- `macro_unknown_key`
+- `list_cross_type_key_priority`
+- `deprecated_field_in_output`
+- `no_deprecated_field_warning_in_output`
+- `deprecated_evt_dir_folded_scalar_condition_snippet`
+- `deprecated_evt_dir_via_macro_folded_scalar_condition_snippet`
+- `rule_capture_enabled`
+- `rule_capture_disabled_by_default`
+
+### Engine changes
+
+- Warn on keys that are unknown for each item type while preserving the flat-union
+  schema behavior for cross-type keys.
+- Warn on deprecated `evt.dir` output and condition usage, including macro-propagated
+  folded-rule condition text without YAML scalar markers.
+- Store capture state and expose Falco-compatible disabled/zero defaults.
+
+### Verification
+
+- TDD red runs failed on the missing capture metadata and macro-propagated folded
+  condition snippet.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 82 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 74 (`64 + 10`),
+  Total 152, 48.7%.
+
+### Concern
+
+- Rustagon exposes warnings as strings rather than Falco's structured warning JSON;
+  folded-scalar parity covers warning content but not JSON code/context fields.
+
+## Batch 9
+
+### Ported and passing
+
+- `rule_capture_duration`
+- `rule_override_capture_replace`
+- `rule_override_capture_duration_replace`
+- `rule_capture_duration_wrong_type`
+- `rule_capture_wrong_type`
+- `exceptions_modifier_op_startswith_oneof`
+- `exceptions_modifier_op_contains_allof`
+- `exceptions_modifier_op_endswith_anyof`
+- `exceptions_modifier_op_glob_oneof`
+- `exceptions_modifier_op_icontains_oneof`
+
+### Engine changes
+
+- Apply `capture` and `capture_duration` replacement overrides and preserve
+  Falco's schema-only failure for a non-boolean `capture` value.
+- Render nested exception values as RHS lists for compound modifier operators.
+
+### Verification
+
+- TDD red run: 4 passed and 6 failed for the six missing behaviors.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 92 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 84 (`74 + 10`),
+  Total 152, 55.3%.
+
+### Concern
+
+- This batch covers single-field compound exception modifiers; multi-field
+  grouping and invalid compound-operator rejection remain in subsequent tests.
+
+## Batch 10
+
+### Ported and passing
+
+- `exceptions_modifier_op_multi_field_mixed`
+- `exceptions_modifier_op_multi_field_both_compound`
+- `exceptions_modifier_op_invalid_base_operator`
+- `exceptions_modifier_op_invalid_base_operator_scalar_field`
+- `exceptions_modifier_op_list_op_with_modifier`
+- `exceptions_modifier_op_numeric_op_with_modifier`
+- `exceptions_modifier_op_modifier_alone`
+- `exceptions_modifier_op_list_op_unchanged`
+- `exceptions_modifier_op_eq_oneof`
+- `exceptions_modifier_op_regex_oneof`
+
+### Engine changes
+
+- Parenthesize multi-field exception conjunctions so `not` applies to the
+  complete tuple.
+- Validate compound comparison operators for both scalar and list field forms,
+  accepting string operators with `oneof`, `anyof`, or `allof` while rejecting
+  invalid bases, list/numeric bases with modifiers, and bare modifiers.
+
+### Verification
+
+- TDD red run: 4 passed and 6 failed for the six missing behaviors.
+- Targeted green run: 10 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 102 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 94 (`84 + 10`),
+  Total 152, 61.8%.
+
+### Concern
+
+- Operator validation is syntax-level and scoped to Falco's known string
+  operator/modifier combinations; Rustagon still does not type-check exception
+  fields against plugin field metadata.
+
+## Batch 11
+
+### Ported and passing
+
+- `exceptions_modifier_op_scalar_value_parenthesised`
+- `exceptions_modifier_op_all_three_modifiers`
+- `exceptions_modifier_op_comp_whitespace_normalized`
+- `exceptions_modifier_op_str_op_multi_field_regression`
+
+### Engine changes
+
+- Parenthesize scalar RHS values used with compound exception operators.
+- Trim surrounding whitespace from exception comparison operators before
+  validation and condition compilation.
+
+### Verification
+
+- TDD red run: 2 passed and 2 failed for the two missing behaviors.
+- Targeted green run: 4 passed, 0 failed.
+- `cargo test -p rustagon-engine`: 106 passed, 0 failed.
+- Updated `parity/METRICS.md`: `falco_unit_engine` Pass 98 (`94 + 4`),
+  Total 152, 64.5%.
+
+### Transition
+
+- `test_rule_loader.cpp` is exhausted after skipping the six `evt.type` warning
+  cases documented in batch 4.
+- Task 1.5+ should continue with other engine unit files, beginning with
+  `test_filter_macro_resolver.cpp` and related suites.

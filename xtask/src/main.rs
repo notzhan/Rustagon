@@ -3,6 +3,7 @@
 //! Handles compilation of eBPF programs and other build tasks
 
 use anyhow::{anyhow, Result};
+use cargo_metadata::MetadataCommand;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::Command;
@@ -23,6 +24,8 @@ enum Commands {
     },
     /// Check eBPF programs without optimizing
     CheckEbpf,
+    /// Print Falco parity metrics from parity/METRICS.md
+    ParityReport,
 }
 
 fn main() -> Result<()> {
@@ -31,6 +34,7 @@ fn main() -> Result<()> {
     match opts.command {
         Commands::BuildEbpf { release } => build_ebpf(release)?,
         Commands::CheckEbpf => check_ebpf()?,
+        Commands::ParityReport => parity_report()?,
     };
 
     Ok(())
@@ -86,17 +90,50 @@ fn check_ebpf() -> Result<()> {
     Ok(())
 }
 
+/// Print parity metrics table from parity/METRICS.md
+fn parity_report() -> Result<()> {
+    let metrics = find_workspace_dir()?.join("parity/METRICS.md");
+    if !metrics.exists() {
+        return Err(anyhow!("parity metrics not found: {:?}", metrics));
+    }
+    print!("{}", std::fs::read_to_string(&metrics)?);
+    Ok(())
+}
+
+/// Find the workspace root directory
+fn find_workspace_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("CARGO_WORKSPACE_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+
+    let manifest = locate_workspace_manifest()?;
+    let metadata = MetadataCommand::new()
+        .manifest_path(&manifest)
+        .no_deps()
+        .exec()?;
+    Ok(metadata.workspace_root.into())
+}
+
+fn locate_workspace_manifest() -> Result<PathBuf> {
+    let mut dir = std::env::current_dir()?;
+    loop {
+        let manifest = dir.join("Cargo.toml");
+        if manifest.is_file() {
+            let contents = std::fs::read_to_string(&manifest)?;
+            if contents.contains("[workspace]") {
+                return Ok(manifest);
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    Err(anyhow!("Could not find workspace Cargo.toml"))
+}
+
 /// Find the eBPF project directory
 fn find_ebpf_dir() -> Result<PathBuf> {
-    let workspace_dir = std::env::var("CARGO_WORKSPACE_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| {
-            // Try to find it relative to current directory
-            let current = std::env::current_dir().ok()?;
-            Some(current.parent()?.to_path_buf())
-        })
-        .ok_or_else(|| anyhow!("Could not find workspace directory"))?;
+    let workspace_dir = find_workspace_dir()?;
 
     let ebpf_dir = workspace_dir.join("rustagon-ebpf");
 

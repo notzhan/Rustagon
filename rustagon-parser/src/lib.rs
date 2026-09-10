@@ -7,6 +7,7 @@
 
 mod parser;
 mod evaluator;
+pub mod filter;
 
 pub use parser::{parse_rules, RuleDefinition, FalcoRule};
 pub use evaluator::{RuleEvaluator, EvaluationContext};

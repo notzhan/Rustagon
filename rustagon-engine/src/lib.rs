@@ -1,0 +1,18 @@
+mod alt_loader;
+mod engine;
+mod fields;
+pub mod filter_details;
+pub mod filter_warnings;
+mod load_result;
+pub mod macro_resolver;
+mod plugins;
+mod rule_loader;
+mod ruleset;
+pub mod utils;
+
+pub use alt_loader::{AltCompileOutput, AltRule, RuleLoaderHooks};
+pub use engine::{Alert, Evt, FalcoEngine, DEFAULT_RULESET};
+pub use load_result::LoadResult;
+pub use plugins::PluginVersion;
+pub use rule_loader::{CompiledRuleset, RuleDetails};
+pub use ruleset::{MatchType, Ruleset};
