@@ -1,155 +1,189 @@
-//! Rustagon eBPF - Kernel-space event capture programs
+//! Kernel-side capture for Rustagon's Phase 4 starter syscall set.
 //!
-//! Pure Rust eBPF programs using aya-ebpf framework.
-//! This crate compiles to eBPF bytecode that runs in the Linux kernel.
-//!
-//! Key constraints:
-//! - NO dynamic memory allocation (Vec, String, HashMap, etc.)
-//! - NO heap allocation of any kind
-//! - Fixed-size stack-allocated structures only
-//! - All shared structures MUST use #[repr(C)]
-//! - All events written to ringbuffer via aya::maps::RingBuf
+//! The programs are attached by userspace to `raw_syscalls/sys_enter` and
+//! `sched/sched_process_exit`. They emit a small fixed-size transition record
+//! beginning with Falco's packed [`PpmEventHeader`]. Full Falco parameter
+//! encoding is intentionally deferred to the userspace consumer work.
 
 #![no_std]
 #![cfg_attr(not(test), no_main)]
 
 use aya_ebpf::{
-    macros::{kprobe, map, tracepoint},
+    helpers::{bpf_get_current_pid_tgid, bpf_ktime_get_ns},
+    macros::{map, tracepoint},
     maps::RingBuf,
-    programs::{ProbeContext, TracePointContext},
+    programs::TracePointContext,
 };
-use core::mem;
-use rustagon_common::{
-    EventHeader, EventType, OpenEvent, SyscallEvent, MAX_STRING_LEN,
-};
+use rustagon_common::ppm::{PpmEventHeader, PpmEventType};
 
-/// RingBuffer for outputting events to userspace
-/// Each event is written directly without serialization
+const RING_BUFFER_BYTES: u32 = 256 * 1024;
+const RAW_SYSCALL_ID_OFFSET: usize = 8;
+const RAW_SYSCALL_ARGS_OFFSET: usize = 16;
+
+// Linux x86_64 syscall numbers. Supporting another architecture requires a
+// second mapping table; see BUILD.md.
+const SYS_CLOSE: i64 = 3;
+const SYS_CONNECT: i64 = 42;
+const SYS_ACCEPT: i64 = 43;
+const SYS_CLONE: i64 = 56;
+const SYS_FORK: i64 = 57;
+const SYS_EXECVE: i64 = 59;
+const SYS_OPENAT: i64 = 257;
+const SYS_ACCEPT4: i64 = 288;
+const SYS_EXECVEAT: i64 = 322;
+const SYS_CLONE3: i64 = 435;
+
+/// Fixed-size bridge record consumed by the Phase 4 userspace loader.
+///
+/// `args` contain the first four raw syscall arguments for syscall-entry
+/// records. Process-exit records set `syscall_id` to `-1` and zero the args.
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct StarterSyscallEvent {
+    pub header: PpmEventHeader,
+    pub syscall_id: i64,
+    pub args: [u64; 4],
+}
+
+impl StarterSyscallEvent {
+    const fn new(
+        timestamp_ns: u64,
+        tid: u64,
+        event_type: PpmEventType,
+        syscall_id: i64,
+        args: [u64; 4],
+    ) -> Self {
+        Self {
+            header: PpmEventHeader::new(
+                timestamp_ns,
+                tid,
+                core::mem::size_of::<Self>() as u32,
+                event_type,
+            ),
+            syscall_id,
+            args,
+        }
+    }
+}
+
 #[map]
-static mut EVENTS: RingBuf = RingBuf::with_byte_capacity(256 * 1024, 0);
+static mut EVENTS: RingBuf = RingBuf::with_byte_size(RING_BUFFER_BYTES, 0);
 
-/// Tracepoint probe for sys_enter_open
-/// Captures file open syscall events
+/// Attach to `raw_syscalls/sys_enter`.
 #[tracepoint]
-pub fn trace_sys_enter_open(ctx: TracePointContext) -> u32 {
-    match unsafe { try_trace_open(&ctx) } {
+pub fn rustagon_sys_enter(ctx: TracePointContext) -> u32 {
+    match try_sys_enter(&ctx) {
         Ok(()) => 0,
-        Err(_) => 1,
-    }
-}
-
-/// Tracepoint probe for sys_enter_openat
-/// Captures openat syscall events
-#[tracepoint]
-pub fn trace_sys_enter_openat(ctx: TracePointContext) -> u32 {
-    match unsafe { try_trace_openat(&ctx) } {
-        Ok(()) => 0,
-        Err(_) => 1,
+        Err(error) => error as u32,
     }
 }
 
 #[inline(always)]
-unsafe fn try_trace_open(_ctx: &TracePointContext) -> Result<(), u64> {
-    // Read syscall context from tracepoint
-    let pid_tgid = aya_ebpf::helpers::bpf_get_current_pid_tgid();
-    let pid = (pid_tgid >> 32) as u32;
-    let uid_gid = aya_ebpf::helpers::bpf_get_current_uid_gid();
-    let uid = (uid_gid & 0xffffffff) as u32;
-    let gid = (uid_gid >> 32) as u32;
-
-    // Create event header
-    let header = EventHeader {
-        timestamp: aya_ebpf::helpers::bpf_ktime_get_ns(),
-        event_type: EventType::Open,
-        pid,
-        uid,
-        gid,
+fn try_sys_enter(ctx: &TracePointContext) -> Result<(), i32> {
+    let syscall_id: i64 = unsafe { ctx.read_at(RAW_SYSCALL_ID_OFFSET)? };
+    let Some(event_type) = event_type_for_syscall(syscall_id) else {
+        return Ok(());
     };
 
-    // Allocate event on stack (NO heap allocation)
-    let mut event: OpenEvent = mem::zeroed();
-    event.header = header;
-
-    // Try to read filename from context
-    // This is a simplified example - full implementation would use
-    // bpf_probe_read to extract syscall arguments
-    let filename = b"/tmp/example";
-    let len = filename.len().min(MAX_STRING_LEN - 1);
-    for i in 0..len {
-        event.pathname[i] = filename[i];
-    }
-
-    // Reserve and write to ringbuffer
-    let buf = EVENTS.reserve::<OpenEvent>(0)?;
-    unsafe {
-        core::ptr::write_unaligned(buf as *mut OpenEvent, event);
-    }
-    EVENTS.submit(buf, 0);
-
-    Ok(())
-}
-
-#[inline(always)]
-unsafe fn try_trace_openat(ctx: &TracePointContext) -> Result<(), u64> {
-    // Same as open for this example
-    try_trace_open(ctx)
-}
-
-/// KProbe on __audit_syscall_entry to capture all syscalls
-#[kprobe]
-pub fn trace_syscall(ctx: ProbeContext) -> u32 {
-    match unsafe { try_trace_syscall(&ctx) } {
-        Ok(()) => 0,
-        Err(_) => 1,
-    }
-}
-
-#[inline(always)]
-unsafe fn try_trace_syscall(ctx: &ProbeContext) -> Result<(), u64> {
-    // Get current process context
-    let pid_tgid = aya_ebpf::helpers::bpf_get_current_pid_tgid();
-    let pid = (pid_tgid >> 32) as u32;
-    let uid_gid = aya_ebpf::helpers::bpf_get_current_uid_gid();
-    let uid = (uid_gid & 0xffffffff) as u32;
-    let gid = (uid_gid >> 32) as u32;
-
-    // Create event header
-    let header = EventHeader {
-        timestamp: aya_ebpf::helpers::bpf_ktime_get_ns(),
-        event_type: EventType::Syscall,
-        pid,
-        uid,
-        gid,
-    };
-
-    // Read syscall number and arguments from registers
-    let syscall_id = ctx.arg::<u32>(0)?;
-    let arg1 = ctx.arg::<u64>(1)?;
-    let arg2 = ctx.arg::<u64>(2)?;
-    let arg3 = ctx.arg::<u64>(3)?;
-    let arg4 = ctx.arg::<u64>(4)?;
-
-    // Create syscall event
-    let event = SyscallEvent {
-        header,
+    let args = [
+        unsafe { ctx.read_at(RAW_SYSCALL_ARGS_OFFSET)? },
+        unsafe { ctx.read_at(RAW_SYSCALL_ARGS_OFFSET + 8)? },
+        unsafe { ctx.read_at(RAW_SYSCALL_ARGS_OFFSET + 16)? },
+        unsafe { ctx.read_at(RAW_SYSCALL_ARGS_OFFSET + 24)? },
+    ];
+    emit(StarterSyscallEvent::new(
+        unsafe { bpf_ktime_get_ns() },
+        current_tid(),
+        event_type,
         syscall_id,
-        retval: 0, // Filled in by exit probe
-        arg1,
-        arg2,
-        arg3,
-        arg4,
-    };
-
-    // Reserve and write to ringbuffer
-    let buf = EVENTS.reserve::<SyscallEvent>(0)?;
-    core::ptr::write_unaligned(buf as *mut SyscallEvent, event);
-    EVENTS.submit(buf, 0);
-
+        args,
+    ));
     Ok(())
+}
+
+/// Attach to `sched/sched_process_exit`.
+#[tracepoint]
+pub fn rustagon_process_exit(_ctx: TracePointContext) -> u32 {
+    emit(StarterSyscallEvent::new(
+        unsafe { bpf_ktime_get_ns() },
+        current_tid(),
+        PpmEventType::EXIT_E,
+        -1,
+        [0; 4],
+    ));
+    0
+}
+
+#[inline(always)]
+fn current_tid() -> u64 {
+    (bpf_get_current_pid_tgid() as u32) as u64
+}
+
+#[inline(always)]
+fn emit(event: StarterSyscallEvent) {
+    let events = unsafe { &*core::ptr::addr_of!(EVENTS) };
+    if let Some(mut entry) = events.reserve::<StarterSyscallEvent>(0) {
+        entry.write(event);
+        entry.submit(0);
+    }
+}
+
+#[inline(always)]
+const fn event_type_for_syscall(syscall_id: i64) -> Option<PpmEventType> {
+    match syscall_id {
+        SYS_OPENAT => Some(PpmEventType::OPENAT_E),
+        SYS_EXECVE | SYS_EXECVEAT => Some(PpmEventType::EXECVE_E),
+        SYS_CONNECT => Some(PpmEventType::CONNECT_E),
+        SYS_ACCEPT => Some(PpmEventType::ACCEPT_E),
+        SYS_ACCEPT4 => Some(PpmEventType::ACCEPT4_E),
+        SYS_CLOSE => Some(PpmEventType::CLOSE_E),
+        SYS_CLONE => Some(PpmEventType::CLONE_E),
+        SYS_CLONE3 => Some(PpmEventType::CLONE3_E),
+        SYS_FORK => Some(PpmEventType::FORK_E),
+        _ => None,
+    }
 }
 
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustagon_common::ppm::PpmEventType;
+
+    #[test]
+    fn maps_phase4_syscalls_to_ppm_entry_events() {
+        assert_eq!(event_type_for_syscall(257), Some(PpmEventType::OPENAT_E));
+        assert_eq!(event_type_for_syscall(59), Some(PpmEventType::EXECVE_E));
+        assert_eq!(event_type_for_syscall(322), Some(PpmEventType::EXECVE_E));
+        assert_eq!(event_type_for_syscall(42), Some(PpmEventType::CONNECT_E));
+        assert_eq!(event_type_for_syscall(43), Some(PpmEventType::ACCEPT_E));
+        assert_eq!(event_type_for_syscall(288), Some(PpmEventType::ACCEPT4_E));
+        assert_eq!(event_type_for_syscall(3), Some(PpmEventType::CLOSE_E));
+        assert_eq!(event_type_for_syscall(56), Some(PpmEventType::CLONE_E));
+        assert_eq!(event_type_for_syscall(435), Some(PpmEventType::CLONE3_E));
+        assert_eq!(event_type_for_syscall(57), Some(PpmEventType::FORK_E));
+        assert_eq!(event_type_for_syscall(0xffff), None);
+    }
+
+    #[test]
+    fn starter_record_uses_ppm_header_and_fixed_payload() {
+        let event = StarterSyscallEvent::new(123, 456, PpmEventType::OPENAT_E, 257, [1, 2, 3, 4]);
+        let header = event.header;
+        let timestamp_ns = header.timestamp_ns;
+        let tid = header.tid;
+        let len = header.len;
+        let event_type = header.event_type;
+        let nparams = header.nparams;
+
+        assert_eq!(timestamp_ns, 123);
+        assert_eq!(tid, 456);
+        assert_eq!(len as usize, core::mem::size_of::<StarterSyscallEvent>());
+        assert_eq!(event_type, PpmEventType::OPENAT_E);
+        assert_eq!(nparams, PpmEventType::OPENAT_E.parameter_count());
+    }
 }
