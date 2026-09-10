@@ -191,6 +191,118 @@ const EVENTS: &[EventEntry] = &[
         asynchronous: false,
     },
     EventEntry {
+        name: "execveat",
+        syscall_code: Some(37),
+        event_code: 37,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "fchdir",
+        syscall_code: Some(38),
+        event_code: 38,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "chdir",
+        syscall_code: Some(39),
+        event_code: 39,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "chroot",
+        syscall_code: Some(40),
+        event_code: 40,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "capset",
+        syscall_code: Some(41),
+        event_code: 41,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setgid",
+        syscall_code: Some(42),
+        event_code: 42,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setgid32",
+        syscall_code: Some(43),
+        event_code: 43,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setpgid",
+        syscall_code: Some(44),
+        event_code: 44,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setresgid",
+        syscall_code: Some(45),
+        event_code: 45,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setresgid32",
+        syscall_code: Some(46),
+        event_code: 46,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setresuid",
+        syscall_code: Some(47),
+        event_code: 47,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setresuid32",
+        syscall_code: Some(48),
+        event_code: 48,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setsid",
+        syscall_code: Some(49),
+        event_code: 49,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "setuid32",
+        syscall_code: Some(50),
+        event_code: 50,
+        generic: true,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "prctl",
+        syscall_code: Some(51),
+        event_code: 51,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
+        name: "getsockopt",
+        syscall_code: Some(52),
+        event_code: 52,
+        generic: false,
+        asynchronous: false,
+    },
+    EventEntry {
         name: "write",
         syscall_code: Some(26),
         event_code: 26,
@@ -329,6 +441,7 @@ pub fn configure_interesting_sets(state: &mut InterestingSetsState) -> Result<()
         .ok_or_else(|| "config must be non-null".to_string())?;
 
     let (positive, negative) = split_custom_set(&config.base_syscalls_custom_set);
+    let positive_is_empty = positive.is_empty();
     let mut base = if positive.is_empty() {
         default_state_syscalls()
     } else {
@@ -337,7 +450,7 @@ pub fn configure_interesting_sets(state: &mut InterestingSetsState) -> Result<()
     let mut selected = rules.clone();
     selected.append(&mut base);
 
-    if config.base_syscalls_repair && config.base_syscalls_custom_set.is_empty() {
+    if config.base_syscalls_repair && positive_is_empty {
         selected = repair_state_syscalls(&rules);
     }
     remove_names_and_aliases(&mut selected, &negative);
@@ -376,8 +489,63 @@ pub fn ignored_syscalls() -> NameSet {
 pub fn repair_state_syscalls(selected: &NameSet) -> NameSet {
     let mut repaired = selected.clone();
     repaired.extend(names(&[
-        "bind", "socket", "clone3", "close", "setuid", "procexit",
+        "clone",
+        "clone3",
+        "fork",
+        "vfork",
+        "execve",
+        "execveat",
+        "fchdir",
+        "chdir",
+        "chroot",
+        "capset",
+        "setgid",
+        "setpgid",
+        "setresgid",
+        "setresuid",
+        "setsid",
+        "setuid",
+        "prctl",
+        "procexit",
     ]));
+    let network = names(&[
+        "accept",
+        "accept4",
+        "bind",
+        "connect",
+        "getsockopt",
+        "listen",
+        "recv",
+        "recvfrom",
+        "send",
+        "sendto",
+        "socket",
+    ]);
+    if !selected.is_disjoint(&network) {
+        repaired.extend(names(&["socket", "getsockopt", "close"]));
+    }
+    if selected.contains("accept") || selected.contains("accept4") || selected.contains("listen") {
+        repaired.insert("bind".into());
+    }
+    let fd_users = names(&[
+        "close",
+        "fanotify_init",
+        "mmap",
+        "open",
+        "openat",
+        "pread",
+        "preadv",
+        "pwrite",
+        "pwritev",
+        "read",
+        "readv",
+        "syncfs",
+        "write",
+        "writev",
+    ]);
+    if !selected.is_disjoint(&fd_users) {
+        repaired.insert("close".into());
+    }
     repaired
 }
 

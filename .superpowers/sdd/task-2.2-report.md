@@ -60,3 +60,17 @@ remains blocked by pre-existing `rustagon-ebpf` incompatibilities with the
 installed Aya API; this implementation does not use Aya.
 
 `falco_unit_app` is now 81/81 (100%).
+
+## Configure interesting sets fidelity review
+
+Corrected repair precedence to test the parsed positive syscall set, matching
+Falco for negative-only and invalid-only custom sets. Added regressions for
+both cases, expanded the static table and repair output with the process,
+network, and file-state names asserted by the Falco fixture, and replaced
+production-helper-derived assertions with explicit expected name sets.
+
+The 11 cases remain useful regression coverage, but are not yet faithful
+libsinsp twins: the Rust model still has only a fixture-sized PPM event table
+and simplified `sinsp_state_sc_set`, generic-event expansion, architecture
+mapping, and plugin parsing-event behavior. Accordingly `falco_unit_app` is
+restored to 70/81 (86.4%); the 11 modeled tests remain excluded from Pass.

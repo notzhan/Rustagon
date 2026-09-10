@@ -1,6 +1,6 @@
 use rustagon_app::interesting_sets::{
-    configure_interesting_sets, default_state_syscalls, generic_event_names, ignored_syscalls,
-    InterestingSetsConfig, InterestingSetsState, RuleEventSets,
+    configure_interesting_sets, default_state_syscalls, ignored_syscalls, InterestingSetsConfig,
+    InterestingSetsState, RuleEventSets,
 };
 use rustagon_engine::FalcoEngine;
 use std::collections::BTreeSet;
@@ -16,6 +16,41 @@ const NONSYSCALL_FILTERS: &[&str] = &["evt.type in (procexit, switch, plugineven
 
 fn names(values: &[&str]) -> BTreeSet<String> {
     values.iter().map(|value| (*value).to_string()).collect()
+}
+
+fn repaired_sample_rules() -> BTreeSet<String> {
+    names(&[
+        "accept",
+        "accept4",
+        "bind",
+        "capset",
+        "chdir",
+        "chroot",
+        "clone",
+        "clone3",
+        "close",
+        "connect",
+        "execve",
+        "execveat",
+        "fchdir",
+        "fork",
+        "getsockopt",
+        "mmap",
+        "open",
+        "prctl",
+        "procexit",
+        "ptrace",
+        "read",
+        "setgid",
+        "setpgid",
+        "setresgid",
+        "setresuid",
+        "setsid",
+        "setuid",
+        "socket",
+        "umount2",
+        "vfork",
+    ])
 }
 
 fn load(filters: &[&str]) -> FalcoEngine {
@@ -104,7 +139,7 @@ fn preconditions_postconditions() {
 fn engine_codes_nonsyscalls_set() {
     let filters = [SAMPLE_FILTERS, GENERIC_FILTERS, NONSYSCALL_FILTERS].concat();
     let sets = rule_sets(&filters);
-    let mut expected_events = names(&[
+    let expected_events = names(&[
         "connect",
         "accept",
         "accept4",
@@ -119,8 +154,9 @@ fn engine_codes_nonsyscalls_set() {
         "switch",
         "pluginevent",
         "asyncevent",
+        "syncfs",
+        "fanotify_init",
     ]);
-    expected_events.extend(generic_event_names());
     assert_eq!(sets.event_names, expected_events);
     assert_eq!(
         sets.syscall_names,
@@ -147,15 +183,9 @@ fn selection_not_allevents() {
     let state = configured(SAMPLE_FILTERS, InterestingSetsConfig::default());
     let expected = names(&[
         "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "clone",
-        "clone3", "fork", "vfork", "socket", "bind", "close",
+        "clone3", "fork", "vfork", "socket", "bind", "close", "procexit",
     ]);
-    assert!(expected.is_subset(&state.selected_syscalls));
-    assert!(state.selected_syscalls.is_disjoint(&ignored_syscalls()));
-    let mut union = rule_sets(SAMPLE_FILTERS).syscall_names;
-    union.extend(default_state_syscalls());
-    union.retain(|name| !ignored_syscalls().contains(name));
-    union.insert("procexit".into());
-    assert_eq!(state.selected_syscalls, union);
+    assert_eq!(state.selected_syscalls, expected);
 }
 
 #[test]
@@ -167,10 +197,10 @@ fn selection_allevents() {
             ..Default::default()
         },
     );
-    let mut expected = rule_sets(SAMPLE_FILTERS).syscall_names;
-    expected.extend(default_state_syscalls());
-    expected.insert("procexit".into());
-    assert!(expected.contains("read"));
+    let expected = names(&[
+        "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "read",
+        "clone", "clone3", "fork", "vfork", "socket", "bind", "close", "procexit",
+    ]);
     assert_eq!(state.selected_syscalls, expected);
 }
 
@@ -178,19 +208,29 @@ fn selection_allevents() {
 fn selection_generic_evts() {
     let filters = [SAMPLE_FILTERS, GENERIC_FILTERS].concat();
     let state = configured(&filters, InterestingSetsConfig::default());
-    assert!(names(&[
-        "syncfs",
-        "fanotify_init",
-        "clone",
-        "clone3",
-        "fork",
-        "vfork",
-        "socket",
-        "bind",
-        "close",
-    ])
-    .is_subset(&state.selected_syscalls));
-    assert!(state.selected_syscalls.is_disjoint(&ignored_syscalls()));
+    assert_eq!(
+        state.selected_syscalls,
+        names(&[
+            "connect",
+            "accept",
+            "accept4",
+            "umount2",
+            "open",
+            "ptrace",
+            "mmap",
+            "execve",
+            "syncfs",
+            "fanotify_init",
+            "clone",
+            "clone3",
+            "fork",
+            "vfork",
+            "socket",
+            "bind",
+            "close",
+            "procexit",
+        ])
+    );
 }
 
 #[test]
@@ -230,12 +270,13 @@ fn selection_custom_base_set() {
 
     state.config.as_mut().unwrap().base_syscalls_custom_set = names(&["!accept"]);
     configure_interesting_sets(&mut state).unwrap();
-    let mut expected = rule_sets(SAMPLE_FILTERS).syscall_names;
-    expected.extend(default_state_syscalls());
-    expected.remove("accept");
-    expected.remove("accept4");
-    expected.insert("procexit".into());
-    assert_eq!(state.selected_syscalls, expected);
+    assert_eq!(
+        state.selected_syscalls,
+        names(&[
+            "connect", "umount2", "open", "ptrace", "mmap", "execve", "read", "clone", "clone3",
+            "fork", "vfork", "socket", "bind", "close", "procexit",
+        ])
+    );
 
     let config = state.config.as_mut().unwrap();
     config.base_syscalls_all = false;
@@ -260,12 +301,10 @@ fn selection_custom_base_set_repair() {
             ..Default::default()
         },
     );
-    assert!(names(&[
-        "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "procexit",
-        "bind", "socket", "clone3", "close", "setuid",
-    ])
-    .is_subset(&state.selected_syscalls));
-    assert!(state.selected_syscalls.is_disjoint(&ignored_syscalls()));
+    let mut expected = repaired_sample_rules();
+    expected.remove("read");
+    expected.insert("openat".into());
+    assert_eq!(state.selected_syscalls, expected);
 }
 
 #[test]
@@ -278,10 +317,7 @@ fn selection_empty_custom_base_set_repair() {
             ..Default::default()
         },
     );
-    let expected = rustagon_app::interesting_sets::repair_state_syscalls(
-        &rule_sets(SAMPLE_FILTERS).syscall_names,
-    );
-    assert_eq!(state.selected_syscalls, expected);
+    assert_eq!(state.selected_syscalls, repaired_sample_rules());
 }
 
 #[test]
@@ -294,15 +330,45 @@ fn selection_base_syscalls_all() {
             ..Default::default()
         },
     );
-    assert!(names(&[
-        "connect", "accept", "accept4", "umount2", "open", "ptrace", "mmap", "execve", "procexit",
-        "bind", "socket", "clone3", "close", "setuid",
-    ])
-    .is_subset(&state.selected_syscalls));
+    assert_eq!(state.selected_syscalls, repaired_sample_rules());
+}
+
+#[test]
+fn negative_only_custom_set_uses_empty_positive_repair_path() {
+    let state = configured(
+        SAMPLE_FILTERS,
+        InterestingSetsConfig {
+            base_syscalls_all: true,
+            base_syscalls_custom_set: names(&["!bind"]),
+            base_syscalls_repair: true,
+        },
+    );
+    assert_eq!(state.selected_syscalls, repaired_sample_rules());
+}
+
+#[test]
+fn invalid_only_custom_set_uses_empty_positive_repair_path() {
+    let state = configured(
+        SAMPLE_FILTERS,
+        InterestingSetsConfig {
+            base_syscalls_all: true,
+            base_syscalls_custom_set: names(&["not_a_syscall"]),
+            base_syscalls_repair: true,
+        },
+    );
+    assert_eq!(state.selected_syscalls, repaired_sample_rules());
 }
 
 #[test]
 fn ignored_set_expected_size() {
-    assert_eq!(ignored_syscalls().len(), 12);
-    assert!(ignored_syscalls().is_disjoint(&default_state_syscalls()));
+    let ignored = names(&[
+        "read", "write", "pread", "pwrite", "readv", "writev", "preadv", "pwritev", "recv",
+        "recvfrom", "send", "sendto",
+    ]);
+    let default_state = names(&[
+        "clone", "clone3", "fork", "vfork", "socket", "bind", "close",
+    ]);
+    assert_eq!(ignored_syscalls(), ignored);
+    assert_eq!(default_state_syscalls(), default_state);
+    assert!(ignored.is_disjoint(&default_state));
 }
