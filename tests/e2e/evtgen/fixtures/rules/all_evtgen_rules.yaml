@@ -5,49 +5,66 @@
 # the first expanded offline representative supported by Rustagon's fields.
 - rule: Clear Log Activities
   desc: Truncate a log file.
-  condition: evt.type = open and fd.name = "/var/log/eg_clear_test"
+  condition: >
+    evt.type = open and fd.name = "/var/log/eg_clear_test"
+    and evt.arg.flags contains O_WRONLY and evt.arg.flags contains O_TRUNC
   output: Log file opened for truncation
   priority: WARNING
   source: syscall
 - rule: Create Hardlink Over Sensitive Files
   desc: Create a hardlink from a sensitive file.
-  condition: evt.type = link and evt.arg.oldpath = "/etc/shadow"
+  condition: >
+    evt.type = link and evt.arg.oldpath = "/etc/shadow"
+    and evt.arg.newpath = "/root/eg_hardlink"
   output: Hardlink over sensitive file
   priority: WARNING
   source: syscall
 - rule: Create Symlink Over Sensitive Files
   desc: Create a symlink targeting a sensitive file.
-  condition: evt.type = symlink and evt.arg.target = "/etc/shadow"
+  condition: >
+    evt.type = symlink and evt.arg.target = "/etc/shadow"
+    and evt.arg.linkpath = "/tmp/eg_symlink_sensitive"
   output: Symlink over sensitive file
   priority: WARNING
   source: syscall
 - rule: Debugfs Launched in Privileged Container
   desc: Launch debugfs in a container.
-  condition: evt.type = execve and proc.name = debugfs and container.id exists
+  condition: >
+    evt.type = execve and proc.name = debugfs and container.id exists
+    and container.privileged = true
   output: Debugfs launched in container
   priority: WARNING
   source: syscall
 - rule: Detect release_agent File Container Escapes
   desc: Open a release_agent file from a container.
-  condition: evt.type = open and fd.name = "/tmp/release_agent" and container.id exists
+  condition: >
+    evt.type = open and fd.name endswith release_agent and container.id exists
+    and evt.arg.flags contains O_WRONLY and user.name = root
+    and thread.cap_effective contains CAP_SYS_ADMIN
   output: release_agent file opened
   priority: CRITICAL
   source: syscall
 - rule: Directory traversal monitored file read
   desc: Read a monitored file through a traversal path.
-  condition: evt.type = open and fd.nameraw contains "../"
+  condition: >
+    evt.type = open and fd.name = "/etc/shadow" and fd.nameraw contains "../"
+    and evt.arg.flags contains O_RDONLY
   output: Directory traversal read
   priority: WARNING
   source: syscall
 - rule: Disallowed SSH Connection Non Standard Port
   desc: Connect ssh to a non-standard port.
-  condition: evt.type = connect and proc.name = ssh and fd.dport = 80
+  condition: >
+    evt.type = connect and proc.exe endswith ssh and fd.l4proto = tcp
+    and fd.dport = 80
   output: SSH non-standard port
   priority: NOTICE
   source: syscall
 - rule: Drop and execute new binary in container
   desc: Execute a dropped binary from a container.
-  condition: evt.type = execve and proc.exe = "/tmp/eg_dropped" and container.id exists
+  condition: >
+    evt.type = execve and proc.exe = "/tmp/eg_dropped" and container.id exists
+    and proc.is_exe_upper_layer = true
   output: Dropped binary executed
   priority: CRITICAL
   source: syscall
@@ -59,7 +76,9 @@
   source: syscall
 - rule: Fileless execution via memfd_create
   desc: Execute a writable binary from memfd.
-  condition: evt.type = execve and evt.arg.flags contains EXE_FROM_MEMFD
+  condition: >
+    evt.type = execve and proc.is_exe_from_memfd = true
+    and evt.arg.flags contains EXE_FROM_MEMFD
   output: Fileless execution
   priority: CRITICAL
   source: syscall
@@ -71,33 +90,42 @@
   source: syscall
 - rule: Netcat Remote Code Execution in Container
   desc: Run netcat with an exec option in a container.
-  condition: evt.type = execve and proc.name = nc and proc.args contains "/bin/sh" and container.id exists
+  condition: >
+    evt.type = execve and proc.name = nc and proc.args contains "-e "
+    and proc.args contains "/bin/sh" and container.id exists
   output: Netcat remote execution
   priority: WARNING
   source: syscall
 - rule: Packet socket created in container
   desc: Create an AF_PACKET socket in a container.
-  condition: evt.type = socket and evt.arg.domain = AF_PACKET and container.id exists
+  condition: >
+    evt.type = socket and evt.arg.domain = AF_PACKET
+    and evt.arg.type = SOCK_RAW and container.id exists
   output: Packet socket created
   priority: NOTICE
   source: syscall
 - rule: Read sensitive file trusted after startup
   desc: A trusted server reads a sensitive file.
-  condition: evt.type = open and fd.name = "/etc/shadow" and proc.name = nginx
+  condition: >
+    evt.type = open and fd.name = "/etc/shadow" and evt.arg.flags contains O_RDONLY
+    and proc.name = nginx and proc.duration > 5000000000
   output: Trusted server read sensitive file
   priority: WARNING
   source: syscall
 - rule: Read sensitive file untrusted
   desc: An untrusted process reads a sensitive file.
   condition: >
-    evt.type = open and fd.name = "/etc/shadow" and proc.name = evtgen
+    evt.type = open and fd.name = "/etc/shadow" and evt.arg.flags contains O_RDONLY
+    and proc.name = evtgen
     and not fd.nameraw exists
   output: Untrusted process read sensitive file
   priority: WARNING
   source: syscall
 - rule: Redirect STDOUT/STDIN to Network Connection in Container
   desc: Duplicate a network socket onto a standard descriptor.
-  condition: evt.type = dup and proc.name = eg_redirect and fd.num = 0 and container.id exists
+  condition: >
+    evt.type = dup and proc.name = eg_redirect and evt.rawres = 0
+    and fd.type = ipv4 and fd.l4proto = tcp and container.id exists
   output: Standard stream redirected
   priority: NOTICE
   source: syscall

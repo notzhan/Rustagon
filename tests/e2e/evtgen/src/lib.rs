@@ -173,6 +173,12 @@ pub fn run_offline_case(fixture: &str, case: &ExpandedCase, rules: &str) -> Resu
                 _ => item_text(case, "target")?,
             };
             event = inspector.inject(raw(leaf_tid, 100, RawEventKind::Open { fd: 3, path }));
+            let flags = match fixture {
+                "clear_log_activities" => "O_WRONLY|O_CREAT|O_TRUNC",
+                "detect_release_agent_file_container_escapes" => "O_WRONLY|O_CREAT",
+                _ => "O_RDONLY",
+            };
+            event.fields.insert("evt.arg.flags".into(), flags.into());
         }
         "disallowed_ssh_connection_non_standard_port" => {
             event = inspector.inject(raw(
@@ -203,6 +209,10 @@ pub fn run_offline_case(fixture: &str, case: &ExpandedCase, rules: &str) -> Resu
             let new_fd = item_text(case, "newfd")?.parse().context("parse newfd")?;
             event = inspector.inject(raw(leaf_tid, 101, RawEventKind::Dup { old_fd: 7, new_fd }));
             event.fields.insert("fd.l4proto".into(), "tcp".into());
+            event.fields.insert("evt.rawres".into(), new_fd.to_string());
+            event
+                .fields
+                .insert("fd.type".into(), item_text(case, "fdtype")?);
         }
         "create_hardlink_over_sensitive_files" => {
             event.fields.insert("evt.type".into(), "link".into());
@@ -228,11 +238,17 @@ pub fn run_offline_case(fixture: &str, case: &ExpandedCase, rules: &str) -> Resu
             event
                 .fields
                 .insert("evt.arg.domain".into(), "AF_PACKET".into());
+            event
+                .fields
+                .insert("evt.arg.type".into(), "SOCK_RAW".into());
         }
         "fileless_execution_via_memfd_create" => {
             event
                 .fields
                 .insert("evt.arg.flags".into(), "EXE_WRITABLE|EXE_FROM_MEMFD".into());
+            event
+                .fields
+                .insert("proc.is_exe_from_memfd".into(), "true".into());
         }
         "debugfs_launched_in_privileged_container"
         | "drop_and_execute_new_binary_in_container"
@@ -250,6 +266,29 @@ pub fn run_offline_case(fixture: &str, case: &ExpandedCase, rules: &str) -> Resu
         event
             .fields
             .insert("fd.nameraw".into(), item_text(case, "pathname")?);
+    }
+    match fixture {
+        "debugfs_launched_in_privileged_container" => {
+            event
+                .fields
+                .insert("container.privileged".into(), "true".into());
+        }
+        "detect_release_agent_file_container_escapes" => {
+            event
+                .fields
+                .insert("thread.cap_effective".into(), "CAP_SYS_ADMIN".into());
+        }
+        "drop_and_execute_new_binary_in_container" => {
+            event
+                .fields
+                .insert("proc.is_exe_upper_layer".into(), "true".into());
+        }
+        "read_sensitive_file_trusted_after_startup" => {
+            event
+                .fields
+                .insert("proc.duration".into(), "6000000000".into());
+        }
+        _ => {}
     }
     if let Some(user) = processes.last().and_then(|process| process.3.as_ref()) {
         event.fields.insert("user.name".into(), user.clone());
