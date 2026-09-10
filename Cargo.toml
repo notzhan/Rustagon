@@ -9,6 +9,7 @@ members = [
     "rustagon-scap",
     "rustagon-sinsp",
     "rustagon-app",
+    "tests/e2e/evtgen",
     "xtask",
 ]
 resolver = "2"

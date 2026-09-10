@@ -1,0 +1,18 @@
+# Minimal executable excerpt of falcosecurity/rules "Run shell untrusted".
+# Source (retrieved 2026-09-10):
+# https://github.com/falcosecurity/rules/blob/724be6f2dacab9d3da1e5337dc814b2f92a67193/rules/falco_rules.yaml
+# The upstream rule's core is: spawned_process and shell_procs and
+# proc.pname exists and protected_shell_spawner. This excerpt narrows the
+# lists to the offline nginx -> bash fixture supported by Rustagon fields.
+- list: shell_procs
+  items: [bash]
+- list: protected_shell_spawning_binaries
+  items: [nginx]
+- rule: Run shell untrusted
+  desc: An attempt to spawn a shell below a protected non-shell application.
+  condition: >
+    evt.type = execve and proc.name in (shell_procs) and proc.pname exists
+    and proc.pname in (protected_shell_spawning_binaries)
+  output: Shell spawned by untrusted binary
+  priority: NOTICE
+  source: syscall
