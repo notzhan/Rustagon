@@ -5,6 +5,7 @@ use crate::ppm_events::{
     FD_RELATED_SYSCALL_NAMES, GENERIC_SYSCALL_NAMES, IO_SYSCALL_NAMES, KERNEL_EVENT_NAMES,
     NETWORK_SYSCALL_NAMES,
 };
+use rustagon_config::BaseSyscallsConfig;
 use rustagon_engine::FalcoEngine;
 use std::collections::BTreeSet;
 
@@ -45,6 +46,16 @@ pub struct InterestingSetsConfig {
     pub base_syscalls_all: bool,
     pub base_syscalls_custom_set: NameSet,
     pub base_syscalls_repair: bool,
+}
+
+impl From<&BaseSyscallsConfig> for InterestingSetsConfig {
+    fn from(config: &BaseSyscallsConfig) -> Self {
+        Self {
+            base_syscalls_all: config.all,
+            base_syscalls_custom_set: config.custom_set.iter().cloned().collect(),
+            base_syscalls_repair: config.repair,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

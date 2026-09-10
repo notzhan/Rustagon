@@ -2,6 +2,7 @@ use rustagon_app::interesting_sets::{
     all_syscall_names, configure_interesting_sets, default_state_syscalls, generic_event_names,
     ignored_syscalls, InterestingSetsConfig, InterestingSetsState, RuleEventSets,
 };
+use rustagon_config::FalcoConfig;
 use rustagon_engine::FalcoEngine;
 use std::collections::BTreeSet;
 
@@ -413,6 +414,26 @@ fn selection_base_syscalls_all() {
         },
     );
     assert_eq!(state.selected_syscalls, repaired_sample_rules());
+}
+
+#[test]
+fn stable_base_syscalls_config_drives_runtime_selection() {
+    let config = FalcoConfig::load_from_str(
+        "base_syscalls:\n  custom_set: [syncfs, \"!accept\"]\n  repair: false\n  all: true\n",
+    )
+    .unwrap();
+    let mut state = InterestingSetsState {
+        engine: Some(rule_sets(SAMPLE_FILTERS)),
+        config: Some(InterestingSetsConfig::from(&config.base_syscalls)),
+        ..Default::default()
+    };
+
+    configure_interesting_sets(&mut state).unwrap();
+
+    assert!(state.selected_syscalls.contains("syncfs"));
+    assert!(!state.selected_syscalls.contains("accept"));
+    assert!(!state.selected_syscalls.contains("accept4"));
+    assert!(state.selected_syscalls.contains("read"));
 }
 
 #[test]

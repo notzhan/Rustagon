@@ -10,7 +10,7 @@ use aya::{
 use rustagon_common::ppm::{PpmEventHeader, PpmEventType};
 use tokio::io::unix::AsyncFd;
 
-use crate::{EventSource, RawEvent, RawEventKind};
+use crate::{DropCounters, DropReason, EventSource, RawEvent, RawEventKind};
 
 const HEADER_LEN: usize = core::mem::size_of::<PpmEventHeader>();
 const STARTER_RECORD_LEN: usize = HEADER_LEN + core::mem::size_of::<i64>() + 4 * 8;
@@ -20,6 +20,7 @@ const STARTER_RECORD_LEN: usize = HEADER_LEN + core::mem::size_of::<i64>() + 4 *
 /// The eBPF object path can be overridden with `RUSTAGON_EBPF_OBJECT`.
 pub struct ModernEbpfSource {
     ring: AsyncFd<RingBuf<MapData>>,
+    drop_counters: DropCounters,
     // Programs and their links are dropped (detached) with the owning Ebpf.
     _ebpf: Ebpf,
 }
@@ -43,7 +44,16 @@ impl ModernEbpfSource {
         let ring = RingBuf::try_from(map).context("EVENTS is not a ring buffer")?;
         let ring = AsyncFd::new(ring).context("register EVENTS ring buffer with Tokio")?;
 
-        Ok(Self { ring, _ebpf: ebpf })
+        Ok(Self {
+            ring,
+            drop_counters: DropCounters::default(),
+            _ebpf: ebpf,
+        })
+    }
+
+    /// Shared counters for userspace-observable event losses.
+    pub fn drop_counters(&self) -> DropCounters {
+        self.drop_counters.clone()
     }
 }
 
@@ -52,7 +62,7 @@ impl EventSource for ModernEbpfSource {
     async fn next_event(&mut self) -> Option<RawEvent> {
         loop {
             while let Some(record) = self.ring.get_mut().next() {
-                if let Some(event) = parse_record(&record) {
+                if let Some(event) = parse_record_with_counters(&record, &self.drop_counters) {
                     return Some(event);
                 }
             }
@@ -110,7 +120,20 @@ fn ebpf_object_path() -> Result<PathBuf> {
     )
 }
 
+#[cfg(test)]
 fn parse_record(record: &[u8]) -> Option<RawEvent> {
+    parse_record_with_counters(record, &DropCounters::default())
+}
+
+fn parse_record_with_counters(record: &[u8], counters: &DropCounters) -> Option<RawEvent> {
+    let event = parse_record_inner(record);
+    if event.is_none() {
+        counters.record(DropReason::ParseFailure);
+    }
+    event
+}
+
+fn parse_record_inner(record: &[u8]) -> Option<RawEvent> {
     if record.len() != STARTER_RECORD_LEN {
         return None;
     }
@@ -192,8 +215,8 @@ fn parse_record(record: &[u8]) -> Option<RawEvent> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_record;
-    use crate::RawEventKind;
+    use super::{parse_record, parse_record_with_counters};
+    use crate::{DropCounters, RawEventKind};
     use rustagon_common::ppm::{PpmEventHeader, PpmEventType};
 
     const HEADER_LEN: usize = core::mem::size_of::<PpmEventHeader>();
@@ -244,6 +267,17 @@ mod tests {
         let mut wrong_header_len = record(PpmEventType::OPENAT_E, 257, [0; 4]);
         wrong_header_len[16..20].copy_from_slice(&999_u32.to_ne_bytes());
         assert!(parse_record(&wrong_header_len).is_none());
+    }
+
+    #[test]
+    fn malformed_ring_records_increment_parse_failures() {
+        let counters = DropCounters::default();
+
+        assert!(parse_record_with_counters(&[0; 3], &counters).is_none());
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.n_drops, 1);
+        assert_eq!(snapshot.n_drops_bug, 1);
     }
 
     /// Requires root or CAP_BPF/CAP_PERFMON and an object built with

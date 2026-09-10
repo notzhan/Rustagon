@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 
+mod drop_counters;
 pub mod modern_ebpf;
+
+pub use drop_counters::{DropCounters, DropCountersSnapshot, DropReason};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum RawEventKind {
