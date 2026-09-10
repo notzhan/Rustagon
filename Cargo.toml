@@ -8,6 +8,7 @@ members = [
     "rustagon-config",
     "rustagon-scap",
     "rustagon-sinsp",
+    "rustagon-app",
     "xtask",
 ]
 resolver = "2"

@@ -1,0 +1,20 @@
+[package]
+name = "rustagon-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"
+rustagon-config = { path = "../rustagon-config" }
+rustagon-engine = { path = "../rustagon-engine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
