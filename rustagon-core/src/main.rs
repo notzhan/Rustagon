@@ -51,9 +51,7 @@ async fn main() -> Result<()> {
         .or_else(|_| tracing_subscriber::EnvFilter::try_new(&args.log_level))
         .unwrap();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
     // Log startup information
     tracing::info!("Starting Rustagon...");

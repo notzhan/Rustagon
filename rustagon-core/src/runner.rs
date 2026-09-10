@@ -27,7 +27,8 @@ impl EventRunner {
             .map(|rule| RuleEvaluator::new(rule.condition.clone()))
             .collect();
 
-        while let Some(_event) = rx.recv().await {
+        while let Some(event) = rx.recv().await {
+            let _ = event.len();
             // In a real implementation:
             // 1. Deserialize event from raw bytes
             // 2. Evaluate each rule against the event
