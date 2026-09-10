@@ -16,6 +16,31 @@ pub enum RawEventKind {
         child_tid: i64,
         child_pid: i64,
     },
+    Open {
+        fd: i64,
+        path: String,
+    },
+    Close {
+        fd: i64,
+    },
+    Dup {
+        old_fd: i64,
+        new_fd: i64,
+    },
+    Connect {
+        fd: i64,
+        source_ip: String,
+        source_port: u16,
+        destination_ip: String,
+        destination_port: u16,
+    },
+    Accept {
+        fd: i64,
+        source_ip: String,
+        source_port: u16,
+        destination_ip: String,
+        destination_port: u16,
+    },
     Exit,
 }
 
