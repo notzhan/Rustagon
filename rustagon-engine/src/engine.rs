@@ -1,4 +1,5 @@
 use crate::alt_loader::{AltCompileOutput, RuleLoaderHooks};
+use crate::eval;
 use crate::fields;
 use crate::plugins::{requirements_satisfied, PluginRequirement, PluginVersion};
 use crate::ruleset::{MatchType, Ruleset};
@@ -7,20 +8,10 @@ use rustagon_parser::{
     filter::{parse_filter, BinaryOp, Expr, Operand, Value},
     parse_rules,
 };
+use rustagon_sinsp::Evt;
 use std::collections::{HashMap, HashSet};
 
 pub const DEFAULT_RULESET: &str = "falco-default-ruleset";
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Evt {
-    pub fields: HashMap<String, String>,
-}
-
-impl Evt {
-    pub fn new(fields: HashMap<String, String>) -> Self {
-        Self { fields }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Alert {
@@ -274,9 +265,14 @@ impl FalcoEngine {
             .rule_details
             .iter()
             .find_map(|(name, details)| {
-                if !self.selections.is_enabled(name, ruleset_id)
-                    || !condition_matches(&details.condition, evt)
-                {
+                let condition = self
+                    .ruleset
+                    .rules
+                    .get(name)
+                    .map_or(details.condition.as_str(), String::as_str);
+                let matches =
+                    parse_filter(condition).is_ok_and(|condition| eval::matches(&condition, evt));
+                if !self.selections.is_enabled(name, ruleset_id) || !matches {
                     return None;
                 }
                 Some(Alert {
@@ -487,15 +483,4 @@ fn applies(source: &str, tags: &[String], rule: &str, name: &str, details: &Rule
     (source.is_empty() || source == details.source())
         && (rule.is_empty() || rule == name)
         && tags.iter().all(|tag| details.tags.contains(tag))
-}
-
-fn condition_matches(condition: &str, evt: &Evt) -> bool {
-    let condition = condition.trim().trim_matches(['(', ')']);
-    if let Some((field, value)) = condition.split_once('=') {
-        return evt
-            .fields
-            .get(field.trim())
-            .is_some_and(|actual| actual == value.trim());
-    }
-    false
 }

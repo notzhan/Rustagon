@@ -15,12 +15,16 @@ pub use fields::{FieldClass, FieldInfo};
 pub use proc_table::ProcessTable;
 pub use thread_info::ThreadInfo;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Evt {
     pub fields: HashMap<String, String>,
 }
 
 impl Evt {
+    pub fn new(fields: HashMap<String, String>) -> Self {
+        Self { fields }
+    }
+
     pub fn get_field_as_string(&self, field: &str) -> Option<String> {
         self.fields.get(field).cloned()
     }
@@ -68,6 +72,7 @@ impl Inspector {
     }
 
     pub fn inject(&mut self, raw: RawEvent) -> Evt {
+        let event_type = event_type_name(&raw.kind);
         let mut fd_for_enrichment = None;
         let mut close_after_enrichment = None;
         let remove_thread_after_enrichment = match &raw.kind {
@@ -149,7 +154,8 @@ impl Inspector {
             RawEventKind::Other => false,
         };
 
-        let evt = self.enrich(raw.tid, fd_for_enrichment);
+        let mut evt = self.enrich(raw.tid, fd_for_enrichment);
+        evt.fields.insert("evt.type".into(), event_type.into());
         if let Some(fd) = close_after_enrichment {
             self.fd_table.remove(raw.tid, fd);
         }
@@ -213,6 +219,20 @@ impl Inspector {
         }
 
         evt
+    }
+}
+
+fn event_type_name(kind: &RawEventKind) -> &'static str {
+    match kind {
+        RawEventKind::Exec { .. } => "execve",
+        RawEventKind::Clone { .. } => "clone",
+        RawEventKind::Open { .. } => "open",
+        RawEventKind::Close { .. } => "close",
+        RawEventKind::Dup { .. } => "dup",
+        RawEventKind::Connect { .. } => "connect",
+        RawEventKind::Accept { .. } => "accept",
+        RawEventKind::Exit => "exit",
+        RawEventKind::Other => "other",
     }
 }
 
