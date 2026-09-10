@@ -6,6 +6,9 @@
 
 #![no_std]
 
+/// Falco PPM-compatible event encoding for the capture path.
+pub mod ppm;
+
 /// Event types supported by Rustagon
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
